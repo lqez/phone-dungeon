@@ -16,7 +16,9 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # never cancel a Pages deployment mid-flight — a cancelled deployment poisons
+  # its commit SHA, and re-running the same SHA then fails outright
+  cancel-in-progress: false
 
 jobs:
   deploy:

@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, "lqez/**"]
+    # the github-pages environment only accepts deployments from the default branch
+    branches: [main]
     paths:
       - "web/**"
       - ".github/workflows/pages.yml"

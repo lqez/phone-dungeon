@@ -1,8 +1,11 @@
-name: Deploy to GitHub Pages
+name: Publish web/ to gh-pages
+
+# GitHub Pages serves the gh-pages branch (legacy source), not an Actions artifact.
+# The artifact route kept stalling in `deployment_queued` on this repo, so this job
+# just splits web/ onto gh-pages and lets Pages build it the ordinary way.
 
 on:
   push:
-    # the github-pages environment only accepts deployments from the default branch
     branches: [main]
     paths:
       - "web/**"
@@ -10,33 +13,23 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
-  # never cancel a Pages deployment mid-flight — a cancelled deployment poisons
-  # its commit SHA, and re-running the same SHA then fails outright
+  group: gh-pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/configure-pages@v5
         with:
-          enablement: true
+          fetch-depth: 0
 
-      # No build step — the game is a static ES module page that loads three.js from a CDN.
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Split web/ onto gh-pages
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git subtree split --prefix web -b gh-pages-build
+          git push -f origin gh-pages-build:gh-pages

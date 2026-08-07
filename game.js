@@ -2082,6 +2082,7 @@ function say(html) {
   if (G.log.length > 20) G.log.shift();
   const last = G.log.slice(-2);
   logEl.innerHTML = last.map((l, i) => `<div class="${i === last.length - 1 ? 'fresh' : ''}">› ${l}</div>`).join('');
+  placeToasts();
 }
 
 let shakeAmt = 0;
@@ -2209,6 +2210,7 @@ function resize() {
   cam.left = -fw / 2; cam.right = fw / 2;
   cam.top = fhFull / 2 + shift; cam.bottom = -fhFull / 2 + shift;
   cam.updateProjectionMatrix();
+  placeToasts();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2567,6 +2569,27 @@ function fireSkill(s) {
 // ════════════════════════════════════════════════════════════════
 
 const insEl = document.getElementById('inspect');
+const toastsEl = document.getElementById('toasts');
+
+// park the explanations on whichever half of the screen the player is not
+function placeToasts() {
+  const h = stageEl.clientHeight;
+  let low = false;                                // toasts at the top by default
+  if (phase === 'dungeon' && G && G.map) {
+    // the logical cell, not the animated token — correct the moment a move commits
+    const v = new THREE.Vector3(gx2w(G.map.px), DUNGEON_Y + 0.5, gy2w(G.map.py));
+    v.project(cam);
+    const sy = (1 - (v.y * 0.5 + 0.5)) * h;
+    low = sy <= h * 0.52;                         // player high on screen → drop low
+  }
+  if (low) {
+    toastsEl.style.top = 'auto';
+    toastsEl.style.bottom = ((dockEl.classList.contains('on') ? dockEl.offsetHeight : 0) + 10) + 'px';
+  } else {
+    toastsEl.style.top = (topEl.offsetHeight + 8) + 'px';
+    toastsEl.style.bottom = 'auto';
+  }
+}
 function showInspect(mo) {
   const my = Math.max(1, effAtk() - mo.def);
   const kills = my >= mo.hp;
@@ -2662,6 +2685,7 @@ function coach(id) {
   G.coach.add(id);
   coachEl.innerHTML = COACH[id];
   coachEl.classList.add('on');
+  placeToasts();
   clearTimeout(coachTimer);
   coachTimer = setTimeout(() => coachEl.classList.remove('on'), 5200);
 }
@@ -2676,8 +2700,8 @@ function sync() {
   const mb = maxBat();
   $('depth').textContent = String(G.depth).padStart(2, '0');
   $('comp').textContent = G.comp ? `${G.comp.name} · ${G.floor}/${G.comp.floors}F` : '—';
-  $('health').textContent = G.health;
-  $('batFill').style.width = Math.max(0, G.bat / mb * 100) + '%';
+  $('batFill').style.width = Math.max(0, G.bat / mb * G.health) + '%';
+  $('batDead').style.width = (100 - G.health) + '%';
   $('batCap').style.left = G.health + '%';
   $('batVal').textContent = `${Math.max(0, G.bat)}/${mb}`;
   const st = heatState();
@@ -2697,6 +2721,7 @@ function sync() {
   syncDock();
 
   if (viaObj && viaObj.visible) coach('via');
+  placeToasts();
 }
 
 // ════════════════════════════════════════════════════════════════

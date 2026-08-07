@@ -82,12 +82,34 @@ const SECTORS = [
 const QUIET = { id:'quiet', name:'NOMINAL', col:'', rule:'특이사항 없음', short:'—' };
 
 const ITEMS = [
-  { id:'atk',   kind:'INSTALL', name:'HEATSINK PASTE', col:0x6BD98A, desc:'ATK +2 (영구)' },
-  { id:'def',   kind:'INSTALL', name:'SHIELD CAN',     col:0x6BD98A, desc:'DEF +1 (영구)' },
+  // one upgrade pickup, and the build decision happens when you step on it
+  { id:'trim',  kind:'INSTALL', name:'TRIM MODULE',    col:0x6BD98A, desc:'강화 — 셋 중 하나를 고른다' },
   { id:'full',  kind:'EXEC',    name:'POWER BANK',     col:0xFFB454, desc:'배터리 완충' },
   { id:'nova',  kind:'EXEC',    name:'CAP DISCHARGE',  col:0xFFB454, desc:'인접 8칸 큰 피해' },
   { id:'cool',  kind:'EXEC',    name:'VAPOR CHAMBER',  col:0xFFB454, desc:'열 전량 방출' },
-  { id:'patch', kind:'PATCH',   name:'WATCHDOG',       col:0x4DE0D0, desc:'치명 시 1회 자동 복구' },
+];
+
+// The build. Three of these are offered per module and you keep one, so a run is
+// a chain of 공/방/체 decisions instead of whatever the floor happened to drop.
+const UPGRADES = [
+  { id:'atk',  axis:'공', name:'CLOCK UP',    col:'r',
+    desc:'ATK <b class="r">+3</b>', note:'교환 횟수를 줄인다. 반격을 덜 맞는 가장 직접적인 길',
+    at: () => `ATK ${G.atk}`,           go: () => { G.atk += 3; } },
+  { id:'def',  axis:'방', name:'SHIELD CAN',  col:'g',
+    desc:'DEF <b class="g">+1</b>', note:'맞는 모든 피해에서 1씩 깎는다. 교환이 길수록 이득',
+    at: () => `DEF ${G.def}`,           go: () => { G.def += 1; } },
+  { id:'cap',  axis:'체', name:'CELL TRIM',   col:'c',
+    desc:'배터리 최대치 <b class="c">+4</b>', note:'버틸 수 있는 교환의 총량이 늘어난다',
+    at: () => `최대 ${maxBat()}`,        go: () => { G.batBonus += 4; G.bat += 4; } },
+  { id:'fog',  axis:'체', name:'FOG TAP',     col:'c',
+    desc:'안개 1칸당 배터리 <b class="c">+1</b> 추가', note:'탐색이 곧 회복이 된다. 넓은 층에서 강하다',
+    at: () => `안개 +${G.lv + G.fogBonus}/칸`, go: () => { G.fogBonus += 1; } },
+  { id:'vent', axis:'방', name:'VAPOR PATH',  col:'a',
+    desc:'처치할 때마다 열 <b class="a">−8</b>', note:'스킬을 계속 쓰고 싶다면 이것부터',
+    at: () => `처치 냉각 ${G.killCool}`, go: () => { G.killCool += 8; } },
+  { id:'dog',  axis:'방', name:'WATCHDOG',    col:'c', once: () => G.watchdog,
+    desc:'치명 시 <b class="c">1회 자동 복구</b>', note:'한 번의 오판을 되돌린다',
+    at: () => '미보유',                  go: () => { G.watchdog = true; } },
 ];
 
 const SKILLS = [
@@ -684,7 +706,9 @@ function newGame() {
     bat:10, health:100, heat:0, shutdown:0,
     depth:0, floor:0, comp:null, cleared:[],
     kills:0, tiles:0,
-    batBonus:0,     // CLEAN ROOM payouts, permanent
+    batBonus:0,     // CLEAN ROOM payouts and CELL TRIM, permanent
+    fogBonus:0,     // FOG TAP: extra battery per tile of fog lifted
+    killCool:0,     // VAPOR PATH: heat shed on every kill
     carry:[],       // monsters that followed you down from a MIGRATION floor
     nextHeat:0,     // heat a THERMAL floor charges you on arrival
     buff:0, cd:{}, watchdog:false,
@@ -992,8 +1016,13 @@ function buildDungeon() {
   // sliding onto the tile the token is drawn in front of
   const pkP = makePick(0.86, PLAYER_PICK_H);
   pkP.position.y = PLAYER_PICK_H / 2 - 0.55;
-  playerObj.add(core, shell, pkP);
-  playerObj.userData = { core, shell, pick: pkP };
+  // watchdog rides as a ring around the token and vanishes when it is spent
+  const dog = new THREE.Mesh(TOR, emissive(0x4DE0D0, 2.2));
+  dog.rotation.x = Math.PI / 2;
+  dog.scale.set(1.5, 1.5, 1.5);
+  dog.visible = false;
+  playerObj.add(core, shell, pkP, dog);
+  playerObj.userData = { core, shell, pick: pkP, dog };
   dunGroup.add(playerObj);
 
   syncMeshes();
@@ -1120,6 +1149,7 @@ function placePlayer(instant) {
 
 function syncMeshes() {
   const m = G.map;
+  syncPlayerFx();
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const f = m.fog[y][x], fg = fogMesh[y][x];
     // an unlit tile shows nothing but the fog lid — no peeking at walls behind it
@@ -1245,7 +1275,7 @@ function nextFloor(first) {
 function gainFromFog(n) {
   if (n <= 0) return;
   const before = G.bat;
-  G.bat = Math.min(maxBat(), G.bat + n * G.lv);
+  G.bat = Math.min(maxBat(), G.bat + n * (G.lv + G.fogBonus));
   G.heat = Math.max(0, G.heat - n * 2);
   const got = G.bat - before;
   if (got > 0) floatText(G.map.px, G.map.py, '+' + got, '#4DE0D0');
@@ -1313,11 +1343,9 @@ const viaLocked = () => G.map.sector.id === 'lock' && killsNeeded() > 0;
 
 function applyItem(t) {
   switch (t.id) {
-    case 'atk': G.atk += 2; say(`<b class="g">${t.name}</b> — ATK +2`); break;
-    case 'def': G.def += 1; say(`<b class="g">${t.name}</b> — DEF +1`); break;
+    case 'trim': offerUpgrade(); break;
     case 'full': G.bat = maxBat(); floatText(G.map.px, G.map.py, 'FULL', '#FFB454'); say(`<b class="a">${t.name}</b> — 배터리 완충`); break;
     case 'cool': G.heat = 0; G.shutdown = 0; say(`<b class="a">${t.name}</b> — 열 전량 방출`); break;
-    case 'patch': G.watchdog = true; say(`<b class="c">${t.name}</b> 상주 — 치명 시 1회 복구`); break;
     case 'nova': {
       const dmg = 12 * G.lv; let n = 0;
       for (const mo of G.map.mons) {
@@ -1331,6 +1359,36 @@ function applyItem(t) {
   }
 }
 
+// Three draws from the pool, one kept. Pathfinding never routes *through* an item
+// tile, so a module is always the last step of a walk and this can safely stop
+// the world: nothing is mid-move behind the card.
+function offerUpgrade() {
+  const pool = shuffle(UPGRADES.filter(u => !(u.once && u.once()))).slice(0, 3);
+  showOver(`
+    <h1>TRIM</h1>
+    <div class="sub">강화 모듈 · 하나를 고른다</div>
+    <div class="picks">${pool.map((u, i) => `
+      <button class="pick ${u.col}" data-i="${i}">
+        <span class="ax">${u.axis}</span>
+        <span class="bd"><span class="pn">${u.name}</span>
+        <span class="pd">${u.desc}</span>
+        <span class="pnote">${u.note}</span></span>
+        <span class="cur">${u.at()}</span>
+      </button>`).join('')}</div>`);
+  cardEl.querySelectorAll('.pick').forEach(el => {
+    el.onclick = () => {
+      const u = pool[+el.dataset.i];
+      u.go();
+      hideOver();
+      say(`<b class="${u.col}">${u.name}</b> 설치 — ${u.desc.replace(/<[^>]+>/g, '')}`);
+      floatText(G.map.px, G.map.py, u.axis, '#4DE0D0');
+      syncPlayerFx();
+      sync();
+    };
+  });
+  cardEl.querySelector('.pick')?.focus();
+}
+
 function hurt(mo, dmg) {
   mo.hp -= dmg;
   floatText(mo.x, mo.y, '-' + dmg, '#FF9AA4');
@@ -1338,6 +1396,10 @@ function hurt(mo, dmg) {
   if (g) g.userData.flash = 1;
   if (mo.hp <= 0) {
     mo.dead = true; G.kills++;
+    if (G.killCool) {                                  // VAPOR PATH
+      const c = Math.min(G.heat, G.killCool);
+      if (c > 0) { G.heat -= c; floatText(mo.x, mo.y, `열 −${c}`, '#FFB454'); }
+    }
     G.xp += xpFor(mo.lv);
     checkLevel();
   }
@@ -1390,6 +1452,7 @@ function takeHit(mo, tag) {
       G.bat = Math.floor(maxBat() * 0.4);
       say('<b class="c">WATCHDOG</b> 발동 — 강제 복구');
       floatText(G.map.px, G.map.py, 'RESET', '#4DE0D0');
+      syncPlayerFx();
     } else {
       G.bat = 0; G.dead = true;
       G.cause = `${mo.t.name} (lv${mo.lv})`;
@@ -1990,6 +2053,40 @@ function showInspect(mo) {
     `<span class="dt">${mo.t.note}</span>`;
   coach('mon');
 }
+// Everything you are carrying, as cards. A run's build is invisible otherwise —
+// DEF and WATCHDOG never appeared anywhere until the moment they saved you.
+const buffsEl = document.getElementById('buffs');   // $ is declared further down
+function syncBuffs() {
+  const cards = [];
+  const card = (cls, label, value, pulse) =>
+    cards.push(`<span class="bf ${cls}${pulse ? ' pulse' : ''}">${label}<span class="v">${value}</span></span>`);
+
+  if (G.buff > 0) card('r', 'TAP', '×1.5', true);
+  if (G.def > 0) card('g', 'SHIELD', 'DEF ' + G.def);
+  if (G.atk > 5 * G.lv) card('r', 'CLOCK', '+' + (G.atk - 5 * G.lv));
+  if (G.batBonus > 0) card('c', 'CELL', '+' + G.batBonus);
+  if (G.fogBonus > 0) card('c', 'FOG', '+' + G.fogBonus + '/칸');
+  if (G.killCool > 0) card('a', 'VENT', '−' + G.killCool);
+  if (G.watchdog) card('c', 'WATCHDOG', '대기', true);
+  if (G.shutdown > 0) card('r', 'SHUTDOWN', G.shutdown + '턴', true);
+
+  buffsEl.innerHTML = cards.join('');
+}
+
+// the same state, but on the token — a shell that thickens with DEF and a
+// watchdog ring that is visibly spent the moment it fires
+function syncPlayerFx() {
+  if (!playerObj) return;
+  const u = playerObj.userData;
+  const s = 0.78 + Math.min(4, G.def) * 0.07;
+  u.shell.scale.set(s, s, s);
+  u.shell.material.opacity = 0.24 + Math.min(4, G.def) * 0.11;
+  u.shell.material.emissiveIntensity = 0.5 + Math.min(4, G.def) * 0.35;
+  u.shell.material.color.setHex(G.def > 0 ? 0x6BD98A : 0x4DE0D0);
+  u.shell.material.emissive.setHex(G.def > 0 ? 0x6BD98A : 0x4DE0D0);
+  u.dog.visible = !!G.watchdog;
+}
+
 // the whole clear-or-run decision, priced out before you step on the VIA
 function showExitInspect() {
   const q = exitQuote(), s = q.sector;
@@ -2055,6 +2152,7 @@ function sync() {
   $('lv').textContent = G.lv;
   $('atk').textContent = effAtk();
   $('xp').textContent = `${G.xp}/${XP_TABLE[G.lv - 1] ?? '—'}`;
+  syncBuffs();
   const q = exitQuote();
   $('sector').innerHTML = `<b class="${q.sector.col}">${q.sector.name}</b> · ${q.sector.short}`;
   $('left').innerHTML = `잔존 <b>${q.left}</b> · 통과 ` +
@@ -2083,7 +2181,8 @@ function showHelp() {
       <div class="lg"><span class="sw" style="--c:#4DE0D0"></span><span><b>나</b> — 시안 큐브. 스킬은 화면 <b>아래 슬롯</b>에서 바로 쓴다</span></div>
       <div class="lg"><span class="sw ring" style="--c:#C87137"></span><span><b>VIA</b> — 아래층으로 내려가는 구멍. <b>전멸하고 내려가면 완충·손실 0</b>, 적을 남기면 남긴 수만큼 수명이 깎인다</span></div>
       <div class="lg"><span class="sw" style="--c:#FFB454"></span><span><b>구역 규칙</b> — 층마다 다르다. HUD 맨 아랫줄에 그 층에서 <b>다 잡을 값어치</b>가 적혀 있다</span></div>
-      <div class="lg"><span class="sw" style="--c:#6BD98A"></span><span><b>부품</b> — 밟는 즉시 발동한다. 인벤토리는 없다</span></div>
+      <div class="lg"><span class="sw" style="--c:#6BD98A"></span><span><b>강화 모듈</b> — 밟으면 <b>공·방·체</b> 셋 중 하나를 고른다. 무엇을 키울지가 이 판의 빌드다</span></div>
+      <div class="lg"><span class="sw" style="--c:#FFB454"></span><span><b>소모품</b> — 밟는 즉시 발동한다. 인벤토리는 없다</span></div>
     </div>
     <p>레벨업하면 <b class="c">배터리가 완충되고 열이 0</b>이 된다. 죽기 직전에 레벨업을 맞추는 것이 이 게임의 핵심이다.</p>
     <button id="ok">내려간다</button>`);
@@ -2113,7 +2212,6 @@ function showDead() {
 
 function completeComponent() {
   payExit();                                  // the last floor is charged too
-  if (G.salvage) { applyItem(G.salvage); G.salvage = null; }
   G.cleared.push(G.comp.id);
   say(`<b class="g">${G.comp.name} 클리어</b>`);
   showOver(`
@@ -2126,7 +2224,12 @@ function completeComponent() {
       <span>배터리 수명</span><span>${G.health}%</span>
     </div>
     <button id="up">기판으로</button>`);
-  $('up').onclick = () => { hideOver(); toBoard(); };
+  // a salvaged module opens its own card, so it has to wait for this one to close
+  $('up').onclick = () => {
+    hideOver();
+    toBoard();
+    if (G.salvage) { const s = G.salvage; G.salvage = null; applyItem(s); }
+  };
   $('up').focus();
 }
 
@@ -2309,10 +2412,14 @@ function frame(now) {
     // hold the pick column square to the grid: spinning it would sweep a wider
     // diagonal and let the token steal taps aimed at the tile behind it
     playerObj.userData.pick.rotation.y = -playerObj.rotation.y;
+    const dog = playerObj.userData.dog;
+    if (dog.visible) { dog.rotation.z = -t * 1.6; dog.material.emissiveIntensity = 1.7 + Math.sin(t * 3) * 0.6; }
     playerLight.position.set(playerObj.position.x, DUNGEON_Y + 2.4, playerObj.position.z);
     const st = heatState();
     const hc = st === 'throttle' || st === 'shutdown' ? 0xFF4D5E : st === 'warm' ? 0xFFB454 : 0x4DE0D0;
     playerObj.userData.core.material.emissive.setHex(hc);
+    // TAP is armed: the core runs hot until it is spent
+    playerObj.userData.core.material.emissiveIntensity = G && G.buff > 0 ? 4.2 + Math.sin(t * 9) * 1.2 : 2.6;
     playerLight.color.setHex(hc);
   }
 

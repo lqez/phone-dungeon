@@ -31,18 +31,21 @@ const XP_TABLE = [5, 15, 30, 50, 75, 105, 140, 180, 225, 275, 330, 390];
 
 // Board layout mirrors a real teardown: SoC high-center, battery dominating
 // the lower half, camera stack top-left, radios along the edges.
+// Laid out the way an actual opened phone is laid out: camera plateau top-left,
+// the logic board a shielded column down the right, the cell dominating the left,
+// coil on the cell, taptic and speaker flanking the bottom.
 const COMPONENTS = [
-  { id:'touch',  name:'TOUCH DIGITIZER', x:  0.0, z: -5.6, w: 5.4, d: 1.5, floors: 2, gimmick:'격자가 정직하다. 기믹 없음' },
-  { id:'cam',    name:'CAMERA ISP',      x: -1.9, z: -3.9, w: 2.3, d: 2.3, floors: 3, gimmick:'렌즈 왜곡 — 시야가 중앙 쪽으로 한 칸 더 쏠린다' },
-  { id:'soc',    name:'SoC / AP',        x:  0.7, z: -1.7, w: 2.6, d: 2.6, floors: 3, gimmick:'코어 구획마다 규칙이 다르다' },
-  { id:'ram',    name:'LPDDR RAM',       x: -1.9, z: -1.0, w: 1.8, d: 1.8, floors: 3, gimmick:'걷힌 안개가 되돌아온다' },
-  { id:'pmic',   name:'PMIC',            x:  2.1, z: -3.6, w: 1.5, d: 1.2, floors: 2, gimmick:'전압 변동 — 공격력이 요동친다' },
-  { id:'nand',   name:'NAND FLASH',      x:  2.0, z:  0.3, w: 1.7, d: 1.7, floors: 3, gimmick:'배드 섹터 — 회복되지 않는 칸' },
-  { id:'modem',  name:'BASEBAND',        x: -2.0, z:  1.4, w: 1.7, d: 1.4, floors: 3, gimmick:'외부에서 침입자가 들어온다' },
-  { id:'audio',  name:'AUDIO CODEC',     x:  1.9, z:  2.3, w: 1.4, d: 1.2, floors: 2, gimmick:'소리가 잠든 것을 깨운다' },
-  { id:'batt',   name:'BATTERY CELL',    x:  0.0, z:  4.4, w: 5.0, d: 4.4, floors: 3, gimmick:'발열 2배. 대신 처치 시 배터리 회복' },
-  { id:'haptic', name:'HAPTIC ENGINE',   x: -1.8, z:  6.9, w: 2.0, d: 1.3, floors: 2, gimmick:'진동 — 모든 것이 밀려난다' },
-  { id:'nfc',    name:'NFC COIL',        x:  1.9, z:  6.9, w: 2.0, d: 1.3, floors: 2, gimmick:'코일 위 칸들이 서로 연결된다' },
+  { id:'touch',  name:'TOUCH DIGITIZER', x:  1.55, z: -6.45, w: 2.9, d: 0.9, floors: 2, gimmick:'격자가 정직하다. 기믹 없음' },
+  { id:'cam',    name:'CAMERA ISP',      x: -1.75, z: -5.35, w: 2.6, d: 2.6, floors: 3, gimmick:'렌즈 왜곡 — 시야가 중앙 쪽으로 한 칸 더 쏠린다' },
+  { id:'soc',    name:'SoC / AP',        x:  1.80, z: -4.60, w: 2.6, d: 2.0, floors: 3, gimmick:'코어 구획마다 규칙이 다르다' },
+  { id:'ram',    name:'LPDDR RAM',       x:  1.80, z: -3.05, w: 2.6, d: 1.2, floors: 3, gimmick:'걷힌 안개가 되돌아온다' },
+  { id:'pmic',   name:'PMIC',            x:  1.80, z: -1.85, w: 2.6, d: 1.2, floors: 2, gimmick:'전압 변동 — 공격력이 요동친다' },
+  { id:'nand',   name:'NAND FLASH',      x:  1.80, z: -0.65, w: 2.6, d: 1.2, floors: 3, gimmick:'배드 섹터 — 회복되지 않는 칸' },
+  { id:'modem',  name:'BASEBAND',        x:  1.80, z:  0.55, w: 2.6, d: 1.2, floors: 3, gimmick:'외부에서 침입자가 들어온다' },
+  { id:'batt',   name:'BATTERY CELL',    x: -1.35, z: -0.55, w: 3.4, d: 7.2, floors: 3, gimmick:'발열 2배. 대신 처치 시 배터리 회복' },
+  { id:'nfc',    name:'NFC COIL',        x: -1.35, z:  0.30, w: 2.2, d: 2.2, floors: 2, gimmick:'코일 위 칸들이 서로 연결된다' },
+  { id:'haptic', name:'HAPTIC ENGINE',   x: -2.05, z:  4.80, w: 2.1, d: 1.6, floors: 2, gimmick:'진동 — 모든 것이 밀려난다' },
+  { id:'audio',  name:'AUDIO CODEC',     x:  1.85, z:  4.80, w: 2.6, d: 1.7, floors: 2, gimmick:'소리가 잠든 것을 깨운다' },
 ];
 
 const MONSTERS = [
@@ -475,118 +478,73 @@ function pcbTex() {
   return canvasTex(1024, 2240, (g, w, h) => {
     const R = prng(20260807);
 
-    g.fillStyle = '#0C2A26';                             // solder mask
+    // machined aluminum midframe
+    g.fillStyle = '#26292E';
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 900, ['#0A2320', '#10322C'], 3, 9, R);
-
-    // ground pour, cross-hatched the way a thermal relief zone is
-    g.strokeStyle = '#0E322C'; g.lineWidth = 3;
-    for (let d = -h; d < w; d += 26) {
-      g.beginPath(); g.moveTo(d, 0); g.lineTo(d + h, h); g.stroke();
+    for (let i = 0; i < 260; i++) {                    // vertical brushing
+      g.globalAlpha = 0.03 + R() * 0.05;
+      g.fillStyle = R() < 0.5 ? '#000000' : '#B9C2CA';
+      g.fillRect(R() * w, 0, 1 + R() * 2, h);
     }
+    g.globalAlpha = 1;
+    speckle(g, w, h, 500, ['#1E2126', '#31353B'], 2, 6, R);
 
-    // routing between the real components, Manhattan with mitred corners
-    const nodes = COMPONENTS.map(c => ({ x: T2X(c.x), y: T2Y(c.z), c }));
-    const trace = (x0, y0, x1, y1, wide, live) => {
-      g.strokeStyle = live ? '#D0873F' : '#14413A';
-      g.lineWidth = wide;
-      g.lineCap = 'round'; g.lineJoin = 'round';
-      const midY = y0 + (y1 - y0) * (0.35 + R() * 0.3);
-      const k = Math.min(34, Math.abs(x1 - x0) * 0.5, Math.abs(midY - y0) * 0.9) * Math.sign(x1 - x0 || 1);
-      g.beginPath();
-      g.moveTo(x0, y0);
-      g.lineTo(x0, midY - Math.abs(k));
-      g.lineTo(x0 + k, midY);                            // 45° mitre
-      g.lineTo(x1 - k, midY);
-      g.lineTo(x1, midY + Math.abs(k));
-      g.lineTo(x1, y1);
-      g.stroke();
+    // frame rail and inner lip
+    g.strokeStyle = '#15171B'; g.lineWidth = 26; g.strokeRect(13, 13, w - 26, h - 26);
+    g.strokeStyle = '#3E434B'; g.lineWidth = 3;  g.strokeRect(30, 30, w - 60, h - 60);
+
+    // antenna break lines in the rail
+    g.fillStyle = '#585F68';
+    for (const fy of [0.09, 0.5, 0.91]) { g.fillRect(0, h * fy, 30, 5); g.fillRect(w - 30, h * fy, 30, 5); }
+    for (const fx of [0.22, 0.78]) { g.fillRect(w * fx, 0, 5, 30); g.fillRect(w * fx, h - 30, 5, 30); }
+
+    // pocket recesses milled where the parts sit
+    const pocket = (x, y, pw2, ph2) => {
+      g.fillStyle = '#1D2025'; g.fillRect(x - pw2 / 2 - 6, y - ph2 / 2 - 6, pw2 + 12, ph2 + 12);
+      g.strokeStyle = '#101216'; g.lineWidth = 3;
+      g.strokeRect(x - pw2 / 2 - 6, y - ph2 / 2 - 6, pw2 + 12, ph2 + 12);
     };
-    for (let i = 0; i < nodes.length; i++) {
-      for (let j = 0; j < 3; j++) {
-        const a = nodes[i], b = nodes[(i + 1 + ((R() * 3) | 0)) % nodes.length];
-        const sx = a.x + (R() - 0.5) * a.c.w * 120, sy = a.y + (R() - 0.5) * a.c.d * 110;
-        const ex = b.x + (R() - 0.5) * b.c.w * 120, ey = b.y + (R() - 0.5) * b.c.d * 110;
-        trace(sx, sy, ex, ey, 3 + R() * 5, R() < 0.16);
-      }
-    }
-    // bus ribbons down the long axis — a phone board is mostly one big bus
-    for (let i = 0; i < 22; i++) {
-      const x = 60 + R() * 900;
-      g.strokeStyle = '#123C35'; g.lineWidth = 2 + R() * 3;
-      g.beginPath(); g.moveTo(x, R() * 400); g.lineTo(x, 400 + R() * 1700); g.stroke();
-    }
+    for (const c of COMPONENTS) pocket(T2X(c.x), T2Y(c.z), c.w / PLATE_W * 1024, c.d / PLATE_H * 2240);
 
-    // vias: drilled hole with an annular ring
-    for (let i = 0; i < 260; i++) {
-      const x = R() * w, y = R() * h, r = 4 + R() * 3;
-      g.fillStyle = '#C8A24A'; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
-      g.fillStyle = '#05100E'; g.beginPath(); g.arc(x, y, r * 0.45, 0, 7); g.fill();
-    }
+    // the logic column sits on an actual green board — its margin peeks past the shields
+    g.fillStyle = '#0E3A2E';
+    g.fillRect(T2X(1.8) - 1.55 / PLATE_W * 1024, T2Y(-5.7), 3.1 / PLATE_W * 1024, T2Y(1.35) - T2Y(-5.7));
+    g.strokeStyle = '#0A2B22'; g.lineWidth = 4;
+    g.strokeRect(T2X(1.8) - 1.55 / PLATE_W * 1024, T2Y(-5.7), 3.1 / PLATE_W * 1024, T2Y(1.35) - T2Y(-5.7));
 
-    // per-component: exposed gold pad field + silkscreen outline + designator
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    COMPONENTS.forEach((c, i) => {
-      const cx = T2X(c.x), cy = T2Y(c.z);
-      const pw = c.w / PLATE_W * 1024, ph = c.d / PLATE_H * 2240;
+    // flex ribbons: display, camera, battery — dark bands with a sheen line
+    const flex = (x0, y0, x1, y1, wd) => {
+      g.strokeStyle = '#17191D'; g.lineWidth = wd; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo((x0 + x1) / 2, (y0 + y1) / 2 + 30, x1, y1); g.stroke();
+      g.strokeStyle = '#2E3238'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x0, y0 - wd * 0.28); g.quadraticCurveTo((x0 + x1) / 2, (y0 + y1) / 2 + 30 - wd * 0.28, x1, y1 - wd * 0.28); g.stroke();
+    };
+    flex(T2X(0.1), T2Y(-6.4), T2X(1.1), T2Y(-5.5), 44);       // display → board
+    flex(T2X(-0.4), T2Y(-4.6), T2X(0.5), T2Y(-4.4), 30);      // camera → board
+    flex(T2X(-1.1), T2Y(3.3), T2X(0.9), T2Y(4.1), 36);        // cell → board tail
+    flex(T2X(0.6), T2Y(5.0), T2X(0.55), T2Y(3.9), 26);        // speaker feed
 
-      g.fillStyle = '#0A1C1A';                            // mask opening
-      g.fillRect(cx - pw / 2 - 6, cy - ph / 2 - 6, pw + 12, ph + 12);
-      const cols = Math.max(4, Math.round(pw / 26)), rows = Math.max(4, Math.round(ph / 26));
-      for (let a = 0; a < cols; a++) for (let b = 0; b < rows; b++) {
-        g.fillStyle = (a + b) % 3 ? '#B98F3E' : '#D9A441';   // BGA ball field
-        const px = cx - pw / 2 + (a + 0.5) * (pw / cols), py = cy - ph / 2 + (b + 0.5) * (ph / rows);
-        g.beginPath(); g.arc(px, py, Math.min(7, pw / cols * 0.3), 0, 7); g.fill();
-      }
+    // screws: rail line + strays
+    const screw = (x, y) => {
+      g.fillStyle = '#111317'; g.beginPath(); g.arc(x, y, 11, 0, 7); g.fill();
+      g.fillStyle = '#4A5058'; g.beginPath(); g.arc(x, y, 7, 0, 7); g.fill();
+      g.strokeStyle = '#1A1D21'; g.lineWidth = 2.5;
+      g.beginPath(); g.moveTo(x - 5, y); g.lineTo(x + 5, y); g.moveTo(x, y - 5); g.lineTo(x, y + 5); g.stroke();
+    };
+    for (const [fx, fy] of [[0.06,0.045],[0.94,0.045],[0.06,0.955],[0.94,0.955],
+                            [0.06,0.5],[0.94,0.5],[0.5,0.03],[0.06,0.25],[0.94,0.25],
+                            [0.06,0.75],[0.94,0.75],[0.42,0.585],[0.58,0.955]])
+      screw(w * fx, h * fy);
 
-      g.strokeStyle = '#9FB2AC'; g.lineWidth = 3;         // silkscreen
-      g.strokeRect(cx - pw / 2 - 14, cy - ph / 2 - 14, pw + 28, ph + 28);
-      g.fillStyle = '#9FB2AC';                            // pin-1 dot
-      g.beginPath(); g.arc(cx - pw / 2 - 26, cy - ph / 2 - 26, 6, 0, 7); g.fill();
-      g.font = '700 30px ui-monospace, Menlo, monospace';
-      g.fillText('U' + (i + 1), cx, cy - ph / 2 - 36);
-      g.font = '600 20px ui-monospace, Menlo, monospace';
-      g.fillStyle = '#7C8E89';
-      g.fillText(c.id.toUpperCase(), cx, cy + ph / 2 + 34);
-    });
-
-    // discrete passives, each with its own designator — the noise floor of a real board
-    g.font = '600 15px ui-monospace, Menlo, monospace';
-    for (let i = 0; i < 120; i++) {
-      const x = R() * (w - 60) + 30, y = R() * (h - 60) + 30;
-      const vert = R() < 0.5, L = 16 + R() * 12;
-      g.fillStyle = '#C8A24A';
-      if (vert) { g.fillRect(x - 6, y - L / 2, 12, 5); g.fillRect(x - 6, y + L / 2 - 5, 12, 5); }
-      else { g.fillRect(x - L / 2, y - 6, 5, 12); g.fillRect(x + L / 2 - 5, y - 6, 5, 12); }
-      g.fillStyle = R() < 0.5 ? '#1E2A2E' : '#3A2F1E';
-      if (vert) g.fillRect(x - 6, y - L / 2 + 4, 12, L - 8);
-      else g.fillRect(x - L / 2 + 4, y - 6, L - 8, 12);
-      if (R() < 0.4) {
-        g.fillStyle = '#7C8E89';
-        g.fillText((R() < 0.5 ? 'R' : 'C') + (1 + (R() * 99 | 0)), x + (vert ? 22 : 0), y + (vert ? 0 : 18));
-      }
-    }
-
-    // board edge: silkscreen frame, fiducials, and the maker's mark
-    g.strokeStyle = '#7C8E89'; g.lineWidth = 4;
-    g.strokeRect(14, 14, w - 28, h - 28);
-    for (const [fx, fy] of [[46, 46], [w - 46, 46], [46, h - 46], [w - 46, h - 46]]) {
-      g.fillStyle = '#C8A24A'; g.beginPath(); g.arc(fx, fy, 11, 0, 7); g.fill();
-      g.fillStyle = '#0C2A26'; g.beginPath(); g.arc(fx, fy, 5, 0, 7); g.fill();
-    }
-    g.fillStyle = '#9FB2AC';
-    g.font = '700 26px ui-monospace, Menlo, monospace';
-    g.fillText('DIE SHRINK  MAIN LOGIC  REV.2', w / 2, 66);
-    g.font = '600 18px ui-monospace, Menlo, monospace';
-    g.fillStyle = '#6E807B';
-    g.fillText('RoHS · 8-LAYER HDI · ENIG', w / 2, h - 58);
+    // the fine print every midframe carries
+    g.textAlign = 'center'; g.fillStyle = '#4A5058';
+    g.font = '600 17px ui-monospace, Menlo, monospace';
+    g.fillText('ASSEMBLED 2026 · MODEL DS-11 · 8-LAYER', w / 2, h - 46);
   });
 }
 
 // ───────────── IC package: epoxy mould with laser-etched marking ─────────────
-// Drawn at the part's own aspect ratio so the marking is not stretched by the
-// box scale, and marked with the component's real name — on a board this dense,
-// the silkscreen is the only way to tell one chip from another.
+// Still used by the dungeon monsters (the SOIC chip body) — not by the hub board.
 function pkgTex(seed, name, aspect) {
   const W0 = 320, H0 = Math.round(Math.min(640, Math.max(110, W0 / aspect)));
   return canvasTex(W0, H0, (g, w, h) => {
@@ -594,26 +552,25 @@ function pkgTex(seed, name, aspect) {
     g.fillStyle = '#1C2228';
     g.fillRect(0, 0, w, h);
     speckle(g, w, h, 320, ['#161B20', '#252C33'], 3, 9, R);
-    g.fillStyle = '#0000004D';                            // mould gate corner
+    g.fillStyle = '#0000004D';
     g.beginPath(); g.moveTo(0, 0); g.lineTo(w * 0.14, 0); g.lineTo(0, h * 0.16); g.fill();
     const pr = Math.min(w, h) * 0.07;
-    g.fillStyle = '#77838C';                              // pin-1 dimple
+    g.fillStyle = '#77838C';
     g.beginPath(); g.arc(pr * 2.2, pr * 2.2, pr, 0, 7); g.fill();
     g.fillStyle = '#13181C';
     g.beginPath(); g.arc(pr * 2.2, pr * 2.2, pr * 0.52, 0, 7); g.fill();
 
-    const s = Math.min(w, h);
+    const s2 = Math.min(w, h);
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#9AA6AE';
-    // shrink the marking until it fits the part, the way a real laser mark is sized
-    let fs = Math.round(s * 0.19);
+    let fs = Math.round(s2 * 0.19);
     do {
       g.font = `700 ${fs}px ui-monospace, Menlo, monospace`;
       fs -= 2;
     } while (fs > 8 && g.measureText(name).width > w * 0.82);
     g.fillText(name, w / 2, h * 0.42);
     g.fillStyle = '#6B767E';
-    g.font = `600 ${Math.round(s * 0.11)}px ui-monospace, Menlo, monospace`;
+    g.font = `600 ${Math.round(s2 * 0.11)}px ui-monospace, Menlo, monospace`;
     g.fillText(`${String.fromCharCode(65 + (R() * 26 | 0))}${1000 + (R() * 8999 | 0)}-${R() * 9 | 0}A`, w / 2, h * 0.63);
     g.fillText(`KR ${24 + (R() * 3 | 0)}W${10 + (R() * 40 | 0)}`, w / 2, h * 0.78);
   });
@@ -641,14 +598,55 @@ function pouchTex() {
     g.fillRect(0, 0, w, 34); g.fillRect(0, h - 34, w, 34);
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#C7D2DA';
-    g.font = '700 40px ui-monospace, Menlo, monospace';
+    g.font = '700 34px ui-monospace, Menlo, monospace';
     g.fillText('Li-Po  4.45V', w / 2, h * 0.4);
-    g.font = '600 25px ui-monospace, Menlo, monospace';
+    g.font = '600 22px ui-monospace, Menlo, monospace';
     g.fillStyle = '#8C979F';
     g.fillText('4820mAh · 18.6Wh', w / 2, h * 0.52);
     g.fillStyle = '#B8863A';
-    g.font = '700 22px ui-monospace, Menlo, monospace';
+    g.font = '700 20px ui-monospace, Menlo, monospace';
     g.fillText('⚠ DO NOT PUNCTURE', w / 2, h * 0.66);
+  });
+}
+
+// stamped EMI shield lid — brushed steel, tiny etched name, no shouting
+function shieldTex(seed, name, aspect) {
+  const W0 = 360, H0 = Math.round(Math.min(720, Math.max(120, W0 / aspect)));
+  return canvasTex(W0, H0, (g, w, h) => {
+    const R = prng(seed * 131 + 7);
+    g.fillStyle = '#A9B0B7';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 120; i++) {                     // brushing
+      g.globalAlpha = 0.04 + R() * 0.07;
+      g.fillStyle = R() < 0.5 ? '#7C838B' : '#D6DCE2';
+      g.fillRect(0, R() * h, w, 1 + R() * 2);
+    }
+    g.globalAlpha = 1;
+    g.strokeStyle = '#8A9199'; g.lineWidth = 5;          // stamped step edge
+    g.strokeRect(8.5, 8.5, w - 17, h - 17);
+    g.strokeStyle = '#C4CBD2'; g.lineWidth = 2;
+    g.strokeRect(13.5, 13.5, w - 27, h - 27);
+    for (let i = 0; i < 3; i++) {                        // vent slots
+      g.fillStyle = '#6F767E';
+      g.fillRect(w * 0.12, h * 0.7 + i * 9, w * 0.28, 4);
+    }
+    // laser-etched name, quiet
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#70777F';
+    g.font = `700 ${Math.round(Math.min(h * 0.3, w * 0.09))}px ui-monospace, Menlo, monospace`;
+    g.fillText(name, w / 2, h * 0.42);
+  });
+}
+
+function speakerTex() {
+  return canvasTex(320, 220, (g, w, h) => {
+    g.fillStyle = '#1B1E22';
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#2C3036'; g.lineWidth = 3; g.strokeRect(6.5, 6.5, w - 13, h - 13);
+    g.fillStyle = '#0C0E11';
+    for (let a = 0; a < 12; a++) for (let b = 0; b < 7; b++) {
+      g.beginPath(); g.arc(34 + a * 23, 40 + b * 21, 5, 0, 7); g.fill();
+    }
   });
 }
 
@@ -724,77 +722,115 @@ function buildBoard() {
   boardPlate.receiveShadow = true;
   boardGroup.add(boardPlate);
 
-  // Traces live in the solder-mask texture now, so the plate only carries the
-  // things that have real height: shield cans over the noisy parts, and the
-  // board-to-board connector the display flex plugs into.
-  // the gap the components leave between the radios and the cell
-  const can = new THREE.Mesh(BOX, M.frame);
-  can.scale.set(2.0, 0.2, 0.78);
-  can.position.set(0, 0.1, 1.62);
-  can.castShadow = true; can.receiveShadow = true;
-  boardGroup.add(can);
-  for (let i = 0; i < 4; i++) {                        // stamped vent slots in the lid
-    const slot = new THREE.Mesh(BOX, M.pcbDark);
-    slot.scale.set(1.3, 0.02, 0.05);
-    slot.position.set(0, 0.21, 1.62 + (i - 1.5) * 0.16);
-    boardGroup.add(slot);
-  }
-  // board-to-board connector at the top edge — where the display flex plugs in
+  // the board-to-board connector the display flex plugs into, top centre
   const conn = new THREE.Mesh(BOX, M.frame);
-  conn.scale.set(2.2, 0.13, 0.36);
-  conn.position.set(0, 0.065, -6.64);
+  conn.scale.set(1.8, 0.13, 0.36);
+  conn.position.set(-0.4, 0.065, -6.85);
   conn.castShadow = true;
   boardGroup.add(conn);
-  for (let i = 0; i < 20; i++) {
-    const pin = new THREE.Mesh(BOX, M.gold);
-    pin.scale.set(0.04, 0.04, 0.44);
-    pin.position.set((i - 9.5) * 0.1, 0.055, -6.64);
-    boardGroup.add(pin);
-  }
 
-  // components
+  // components — what a teardown actually shows: shields, a cell, modules
   COMPONENTS.forEach((c, i) => {
     const g = new THREE.Group();
     g.position.set(c.x, 0, c.z);
+    let pkg;                                   // the mesh that dims once conquered
 
-    const isBig = c.id === 'batt';
-    // its own marking per part — the board is too dense to tell chips apart otherwise
-    const pkgMat = isBig ? M.pouch : mat({
-      color: 0xFFFFFF, map: pkgTex(i * 977 + 5, c.name, c.w / c.d),
-      roughness: 0.62, metalness: 0.28,
-    });
-    const pkg = new THREE.Mesh(BOX, pkgMat);
-    const hgt = isBig ? 0.34 : 0.30 + rnd() * 0.14;
-    pkg.scale.set(c.w, hgt, c.d);
-    pkg.position.y = hgt / 2;
-    pkg.castShadow = true; pkg.receiveShadow = true;
+    switch (c.id) {
+      // logic column: everything lives under stamped steel
+      case 'soc': case 'ram': case 'pmic': case 'nand': case 'modem': {
+        pkg = new THREE.Mesh(BOX, mat({ color:0xFFFFFF, map: shieldTex(i, c.name, c.w / c.d),
+          roughness: 0.34, metalness: 0.85 }));
+        pkg.scale.set(c.w, 0.26, c.d);
+        pkg.position.y = 0.13;
+        break;
+      }
+      case 'touch': {                          // display flex, gold fingers
+        pkg = new THREE.Mesh(BOX, mat({ color:0x17191D, roughness:0.5, metalness:0.3 }));
+        pkg.scale.set(c.w, 0.08, c.d);
+        pkg.position.y = 0.04;
+        for (let f = 0; f < 12; f++) {
+          const fin = new THREE.Mesh(BOX, M.gold);
+          fin.scale.set(c.w / 16, 0.03, 0.16);
+          fin.position.set((f - 5.5) * (c.w / 14), 0.09, -c.d / 2 + 0.1);
+          g.add(fin);
+        }
+        break;
+      }
+      case 'cam': {                            // camera plateau, two barrels
+        pkg = new THREE.Mesh(BOX, mat({ color:0x23262B, roughness:0.4, metalness:0.6 }));
+        pkg.scale.set(c.w, 0.5, c.d);
+        pkg.position.y = 0.25;
+        for (const [lx, lz, r] of [[-0.55, -0.5, 0.52], [0.45, 0.45, 0.44]]) {
+          const barrel = new THREE.Mesh(CYL, mat({ color:0x101216, roughness:0.3, metalness:0.7 }));
+          barrel.scale.set(r, 0.16, r); barrel.position.set(lx, 0.58, lz);
+          const lens = new THREE.Mesh(CYL, mat({ color:0x1A2A46, roughness:0.05, metalness:0.2 }));
+          lens.scale.set(r * 0.6, 0.02, r * 0.6); lens.position.set(lx, 0.68, lz);
+          g.add(barrel, lens);
+        }
+        break;
+      }
+      case 'batt': {                           // the pouch, with pull tabs
+        pkg = new THREE.Mesh(BOX, M.pouch.clone());
+        pkg.scale.set(c.w, 0.3, c.d);
+        pkg.position.y = 0.15;
+        for (const tx of [-1.1, 0, 1.1]) {
+          const tab = new THREE.Mesh(BOX, mat({ color:0xD8DCE0, roughness:0.85 }));
+          tab.scale.set(0.34, 0.02, 0.5);
+          tab.position.set(tx, 0.02, c.d / 2 + 0.12);
+          g.add(tab);
+        }
+        break;
+      }
+      case 'nfc': {                            // charging coil wound flat on the cell
+        const film = new THREE.Mesh(CYL, mat({ color:0x221A10, roughness:0.75, metalness:0.15 }));
+        film.scale.set(c.w * 0.58, 0.015, c.w * 0.58);
+        film.position.y = 0.32;
+        g.add(film);
+        // concentric windings out to the film's edge — reads as a wound pancake
+        pkg = new THREE.Mesh(TOR, mat({ color:0xB4652F, roughness:0.35, metalness:0.85 }));
+        pkg.rotation.x = Math.PI / 2;
+        pkg.scale.set(2.9, 2.9, 0.75);
+        pkg.position.y = 0.34;
+        for (const [r, tone] of [[2.35, 0xA85D29], [1.8, 0x9A5528], [1.25, 0x8A4A22]]) {
+          const wind = new THREE.Mesh(TOR, mat({ color: tone, roughness:0.4, metalness:0.8 }));
+          wind.rotation.x = Math.PI / 2;
+          wind.scale.set(r, r, 0.6);
+          wind.position.y = 0.34;
+          g.add(wind);
+        }
+        break;
+      }
+      case 'haptic': {                         // taptic block, screwed down
+        pkg = new THREE.Mesh(BOX, M.frame.clone());
+        pkg.scale.set(c.w, 0.34, c.d);
+        pkg.position.y = 0.17;
+        for (const sx of [-1, 1]) {
+          const sc = new THREE.Mesh(CYL, mat({ color:0x8E959C, roughness:0.4, metalness:0.9 }));
+          sc.scale.set(0.09, 0.05, 0.09);
+          sc.position.set(sx * (c.w / 2 - 0.2), 0.36, -c.d / 2 + 0.22);
+          g.add(sc);
+        }
+        break;
+      }
+      case 'audio': {                          // speaker box, dot grille
+        pkg = new THREE.Mesh(BOX, mat({ color:0xFFFFFF, map: speakerTex(), roughness:0.6, metalness:0.3 }));
+        pkg.scale.set(c.w, 0.3, c.d);
+        pkg.position.y = 0.15;
+        break;
+      }
+    }
+    pkg.castShadow = pkg.receiveShadow = true;
+    pkg.userData.baseColor = pkg.material.color.getHex();
     g.add(pkg);
 
-    if (!isBig) {
-      // gold pins down two sides — reads as an IC at a glance
-      const n = Math.max(3, Math.round(c.w * 3));
-      for (let s = -1; s <= 1; s += 2)
-        for (let p = 0; p < n; p++) {
-          const pin = new THREE.Mesh(BOX, M.gold);
-          pin.scale.set(c.w / n * 0.45, 0.05, 0.12);
-          pin.position.set((p - (n - 1) / 2) * (c.w / n), 0.04, s * (c.d / 2 + 0.06));
-          g.add(pin);
-        }
-    } else {
-      const strip = new THREE.Mesh(BOX, M.copperD);
-      strip.scale.set(c.w * 0.8, 0.06, 0.3);
-      strip.position.set(0, hgt + 0.01, -c.d / 2 + 0.35);
-      g.add(strip);
-    }
-
     // selection halo, hidden until the hub is live — kept thin so the board reads through
-    const halo = new THREE.Mesh(BOX, emissive(0x4DE0D0, 1.1));
-    halo.scale.set(c.w + 0.17, 0.03, c.d + 0.17);
+    const halo = new THREE.Mesh(BOX, emissive(0x4DE0D0, 0.75));
+    halo.scale.set(c.w + 0.12, 0.02, c.d + 0.12);
     halo.position.y = 0.012;
     halo.visible = false;
     g.add(halo);
 
-    g.userData = { comp: c, idx: i, halo, pkg, hgt };
+    g.userData = { comp: c, idx: i, halo, pkg, hgt: 0.3 };
     boardGroup.add(g);
     icMeshes.push(g);
   });
@@ -2079,11 +2115,16 @@ function useSkill(s, arg) {
 // ════════════════════════════════════════════════════════════════
 
 const logEl = document.getElementById('log');
+let logFadeT = null;
 function say(html) {
   G.log.push(html);
   if (G.log.length > 20) G.log.shift();
   const last = G.log.slice(-2);
   logEl.innerHTML = last.map((l, i) => `<div class="${i === last.length - 1 ? 'fresh' : ''}">› ${l}</div>`).join('');
+  // in the hub a message is a toast in the strict sense: it says its line and leaves
+  clearTimeout(logFadeT);
+  logEl.classList.remove('faded');
+  if (phase !== 'dungeon') logFadeT = setTimeout(() => logEl.classList.add('faded'), 3000);
   placeToasts();
 }
 
@@ -2269,11 +2310,12 @@ function pickTile(ev) {
 
 function pickComponent(ev) {
   aim(ev);
+  let best = null;
   for (const g of icMeshes) {
     const hits = ray.intersectObject(g, true);
-    if (hits.length) return g;
+    if (hits.length && (!best || hits[0].distance < best.d)) best = { g, d: hits[0].distance };
   }
-  return null;
+  return best ? best.g : null;
 }
 
 canvas.addEventListener('pointerdown', ev => {
@@ -2598,6 +2640,12 @@ const toastsEl = document.getElementById('toasts');
 // park the explanations on whichever half of the screen the player is not
 function placeToasts() {
   const h = stageEl.clientHeight;
+  if (phase !== 'dungeon') {
+    // hub: everything on screen is a part now — hug the bottom rail and get out
+    toastsEl.style.top = 'auto';
+    toastsEl.style.bottom = '14px';
+    return;
+  }
   let low = false;                                // toasts at the top by default
   if (phase === 'dungeon' && G && G.map) {
     // the logical cell, not the animated token — correct the moment a move commits
@@ -2897,9 +2945,9 @@ function updateBoardHalos() {
     const c = g.userData.comp;
     const done = G.cleared.includes(c.id);
     g.userData.halo.visible = !done && phase === 'board';
-    // a taken part goes dark but keeps its own marking — swapping the material
-    // out would erase the one thing that tells the chips apart
-    g.userData.pkg.material.color.setHex(done ? 0x33383E : 0xFFFFFF);
+    // a taken part goes dark but keeps its own look
+    const base = g.userData.pkg.userData.baseColor ?? 0xFFFFFF;
+    g.userData.pkg.material.color.setHex(done ? 0x30343A : base);
   });
 }
 

@@ -805,13 +805,185 @@ function heatState() {
   if (G.heat >= 70) return 'warm';
   return 'nominal';
 }
-const heatCost = c => heatState() === 'warm' ? Math.round(c * 1.5) : c;
+const heatCost = c => {
+  const gm = gim();
+  let v = heatState() === 'warm' ? Math.round(c * 1.5) : c;
+  v *= gm?.heatMul || 1;
+  v *= gm?.zone?.()?.heatMul || 1;
+  return Math.round(v);
+};
 function effAtk() {
-  let a = G.atk;
+  const gm = gim();
+  let a = G.atk + (gm?.atk?.() || 0) + (gm?.zone?.()?.atk || 0);
   if (heatState() === 'throttle') a = Math.floor(a * 0.75);
   if (G.buff > 0) a = Math.floor(a * 1.5);
   return Math.max(1, a);
 }
+
+// ════════════════════════════════════════════════════════════════
+//  component gimmicks
+//
+//  Until now the gimmick line on each component was flavour text and every
+//  soldered part played identically. Each one is now a rule that hooks the turn
+//  loop, so choosing where to go on the board is choosing what game to play.
+// ════════════════════════════════════════════════════════════════
+
+const SOC_ZONES = [
+  { id:'hot',  name:'열 구획',   note:'스킬 열 2배',        heatMul: 2 },
+  { id:'cool', name:'냉각 구획', note:'안개 냉각 2배',      coolMul: 2 },
+  { id:'fast', name:'가속 구획', note:'ATK +3',             atk: 3 },
+  { id:'weak', name:'감압 구획', note:'반격 피해 +2',       back: 2 },
+];
+
+const GIM = {
+  // 렌즈 왜곡 — the reveal is dragged toward the middle of the die
+  cam: {
+    revealAt(x, y) {
+      const cx = (W - 1) / 2, cy = (H - 1) / 2;
+      return [x + Math.sign(cx - x), y + Math.sign(cy - y)];
+    },
+  },
+
+  // 코어 구획마다 규칙이 다르다 — four quadrants, four contracts
+  soc: {
+    onGen(m) { m.zones = shuffle(SOC_ZONES.slice()); },
+    zone() {
+      const m = G.map;
+      if (!m.zones) return null;
+      return m.zones[(m.py < H / 2 ? 0 : 2) + (m.px < W / 2 ? 0 : 1)];
+    },
+    onMove() {
+      const z = GIM.soc.zone();
+      if (z && z !== G.zone) { G.zone = z; say(`<b class="a">${z.name}</b> — ${z.note}`); }
+    },
+  },
+
+  // 걷힌 안개가 되돌아온다 — refresh, and the row you left goes dark again
+  ram: {
+    onTurn() {
+      if (G.tiles % 4) return;
+      const m = G.map, back = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+        if (!m.fog[y][x] && !m.wall[y][x] && dist(x, y, m.px, m.py) > 3) back.push({ x, y });
+      shuffle(back).slice(0, 3).forEach(p => { m.fog[p.y][p.x] = 1; });
+      if (back.length) syncMeshes();
+    },
+  },
+
+  // 전압 변동 — ATK swings every turn
+  pmic: {
+    onTurn() { G.volt = ri(-2, 3); },
+    atk() { return G.volt || 0; },
+  },
+
+  // 배드 섹터 — cells that give nothing back
+  nand: {
+    onGen(m) {
+      m.bad = Array.from({ length: H }, () => new Array(W).fill(0));
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+        if (!m.wall[y][x] && rnd() < 0.28) m.bad[y][x] = 1;
+      m.bad[m.py][m.px] = 0;
+    },
+    fogGain(n) { return G.map.bad?.[G.map.py]?.[G.map.px] ? 0 : n; },
+  },
+
+  // 외부에서 침입자가 들어온다 — the edge keeps letting things in
+  modem: {
+    onTurn() {
+      const m = G.map;
+      if (G.tiles % 5 || m.mons.filter(o => !o.dead).length >= 14) return;
+      const edge = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (m.wall[y][x] || monAt(x, y)) continue;
+        if (x === 0 || y === 0 || x === W - 1 || y === H - 1) edge.push({ x, y });
+      }
+      if (!edge.length) return;
+      const p = pick(edge), t = pick(MONSTERS);
+      const lv = Math.max(1, 1 + Math.floor(G.depth * 0.72) + ri(-1, 1));
+      const hp = Math.max(1, Math.round(8 * lv * t.hp));
+      m.mons.push({ x:p.x, y:p.y, t, lv, hp, max:hp,
+        atk: Math.max(1, Math.round(5 * lv * t.atk)), def: Math.round(t.def * lv),
+        halt:0, dead:false, wasHit:false, intruder:true });
+      monObj.push(makeMonster(m.mons[m.mons.length - 1]));
+      syncMeshes();
+      say('<b class="r">침입</b> — 외부에서 무언가 들어왔다');
+    },
+  },
+
+  // 소리가 잠든 것을 깨운다 — noise wakes the neighbours, and the woken ones bite
+  // as you pass. This is the one floor where walking past is not free.
+  audio: {
+    onNoise(x, y) {
+      let n = 0;
+      for (const mo of G.map.mons)
+        if (!mo.dead && !mo.awake && dist(mo.x, mo.y, x, y) <= 3) { mo.awake = true; n++; }
+      if (n) { say(`<b class="a">${n}기가 깨어났다</b> — 지나가면 물린다`); syncMeshes(); }
+    },
+    onMove(x, y) {
+      for (const mo of G.map.mons) {
+        if (mo.dead || !mo.awake || dist(mo.x, mo.y, x, y) > 1) continue;
+        takeHit(mo, '기회공격');
+        if (G.dead) return;
+      }
+    },
+  },
+
+  // 발열 2배, 대신 처치가 곧 충전
+  batt: {
+    heatMul: 2,
+    onKill(mo) {
+      const got = Math.min(maxBat() - G.bat, mo.lv * 2);
+      if (got > 0) { G.bat += got; floatText(mo.x, mo.y, '+' + got, '#4DE0D0'); }
+    },
+  },
+
+  // 진동 — everything gets shoved
+  haptic: {
+    onTurn() {
+      if (G.tiles % 3) return;
+      const m = G.map;
+      let moved = 0;
+      for (const mo of m.mons) {
+        if (mo.dead) continue;
+        const [dx, dy] = pick(DIRS8);
+        const nx = mo.x + dx, ny = mo.y + dy;
+        if (!inB(nx, ny) || m.wall[ny][nx] || monAt(nx, ny)) continue;
+        if (nx === m.px && ny === m.py) continue;
+        mo.x = nx; mo.y = ny; moved++;
+      }
+      if (moved) { syncMeshes(); say('<b class="a">진동</b> — 배치가 흔들렸다'); }
+    },
+  },
+
+  // 코일 위 칸들이 서로 연결된다
+  nfc: {
+    onGen(m) {
+      const free = [];
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+        if (!m.wall[y][x] && dist(x, y, m.px, m.py) > 2) free.push({ x, y });
+      shuffle(free);
+      m.coils = [];
+      for (let i = 0; i + 1 < free.length && m.coils.length < 3; i += 2)
+        m.coils.push([free[i], free[i + 1]]);
+    },
+    onStep(x, y) {
+      const m = G.map;
+      for (const [a, b] of m.coils || []) {
+        const to = (a.x === x && a.y === y) ? b : (b.x === x && b.y === y) ? a : null;
+        if (!to || monAt(to.x, to.y)) continue;
+        m.px = to.x; m.py = to.y;
+        G.walking = null;                    // the planned path started somewhere else
+        gainFromFog(revealFog(m, to.x, to.y, 1));
+        placePlayer(true); syncMeshes();
+        say('<b class="c">코일 결합</b> — 반대편으로 넘어갔다');
+        return true;
+      }
+      return false;
+    },
+  },
+};
+
+const gim = () => (G.comp && GIM[G.comp.id]) || null;
 
 // ───────────── map generation ─────────────
 function genMap(depth) {
@@ -893,6 +1065,7 @@ function genMap(depth) {
   // the first floor of a run stays plain — one new rule at a time
   const sector = depth <= 1 ? QUIET : pick(SECTORS);
   const m = { wall, mons, items, via, fog, px, py, sector };
+  gim()?.onGen?.(m);
   revealFog(m, px, py, 1);
   return m;
 }
@@ -1086,6 +1259,10 @@ function buildDungeon() {
 
   buildDieEdge();
 
+  // NAND bad blocks are drawn burnt-out — you must be able to see the dead cells
+  const badMat = m.bad ? M.floor.clone() : null;
+  if (badMat) { badMat.color.setHex(0x4A4650); badMat.emissiveIntensity = 0.08; }
+
   for (let y = 0; y < H; y++) {
     tileMesh[y] = []; fogMesh[y] = []; wallMesh[y] = []; pickMesh[y] = [];
     for (let x = 0; x < W; x++) {
@@ -1100,7 +1277,8 @@ function buildDungeon() {
         dunGroup.add(wl); wallMesh[y][x] = wl;
       } else {
         // butted edge to edge: the metal layer is one surface, not a tray of tiles
-        const fl = new THREE.Mesh(BOX, (x + y) % 2 ? M.floor : M.floorAlt);
+        const bad = m.bad?.[y]?.[x];
+        const fl = new THREE.Mesh(BOX, bad ? badMat : ((x + y) % 2 ? M.floor : M.floorAlt));
         fl.scale.set(0.999, 0.14, 0.999);
         fl.position.set(wx, -0.07, wz);
         fl.receiveShadow = true;
@@ -1138,6 +1316,15 @@ function buildDungeon() {
   vg.add(hole, ring);
   vg.userData = { gx:m.via.x, gy:m.via.y, ring };
   dunGroup.add(vg); viaObj = vg;
+
+  for (const [a, b2] of m.coils || []) for (const c of [a, b2]) {
+    const coil = new THREE.Mesh(TOR, emissive(0xC87137, 1.8));
+    coil.rotation.x = Math.PI / 2;
+    coil.scale.set(1.35, 1.35, 1.35);
+    coil.position.set(gx2w(c.x), 0.06, gy2w(c.y));
+    coil.userData.spin = true;
+    dunGroup.add(coil);
+  }
 
   m.mons.forEach(mo => monObj.push(makeMonster(mo)));
   m.items.forEach(it => itemObj.push(makeItem(it)));
@@ -1397,9 +1584,11 @@ function syncMeshes() {
     if (!g.visible) return;
     const danger = mo.lv > G.lv;
     const c = danger ? 0xFF4D5E : mo.t.col;
+    const rc = mo.awake ? 0xFFB454 : c;                  // awake: it will bite in passing
     g.userData.em.emissive.setHex(c);
-    g.userData.ring.material.emissive.setHex(c);
-    g.userData.ring.material.color.setHex(c);
+    g.userData.ring.material.emissive.setHex(rc);
+    g.userData.ring.material.color.setHex(rc);
+    g.userData.ring.material.emissiveIntensity = mo.awake ? 3.4 : 2.4;
     g.userData.spr.material = numSprite(mo.lv, danger ? '#FF8A94' : '#DCE6EE');
     const r = Math.max(0.02, mo.hp / mo.max);
     g.userData.bar.scale.x = 0.62 * r;
@@ -1491,7 +1680,7 @@ function gainFromFog(n) {
   if (n <= 0) return;
   const before = G.bat;
   G.bat = Math.min(maxBat(), G.bat + n * (G.lv + G.fogBonus));
-  G.heat = Math.max(0, G.heat - n * 2);
+  G.heat = Math.max(0, G.heat - n * 2 * (gim()?.zone?.()?.coolMul || 1));
   const got = G.bat - before;
   if (got > 0) floatText(G.map.px, G.map.py, '+' + got, '#4DE0D0');
   coach('fog');
@@ -1505,6 +1694,7 @@ function tickTurn() {
     G.heat = Math.min(G.heat, 88);
     say('<b class="g">복구 완료</b> — 시스템 재가동');
   }
+  gim()?.onTurn?.();
 }
 
 function addHeat(v) {
@@ -1518,12 +1708,19 @@ function addHeat(v) {
 
 function moveTo(x, y) {
   const m = G.map;
+  const gm = gim();
   m.px = x; m.py = y;
   G.tiles++;
-  gainFromFog(revealFog(m, x, y, 1));
+  const [rx, ry] = gm?.revealAt ? gm.revealAt(x, y) : [x, y];
+  let got = revealFog(m, rx, ry, 1);
+  if (gm?.fogGain) got = gm.fogGain(got);
+  gainFromFog(got);
   tickTurn();
   placePlayer(false);
   syncMeshes();
+  gm?.onMove?.(x, y);
+  if (G.dead) return;
+  if (gm?.onStep?.(x, y)) return;          // a coil moved us; the step is spent
   stepOn(x, y);
 }
 
@@ -1611,6 +1808,7 @@ function hurt(mo, dmg) {
   if (g) g.userData.flash = 1;
   if (mo.hp <= 0) {
     mo.dead = true; G.kills++;
+    gim()?.onKill?.(mo);
     if (G.killCool) {                                  // VAPOR PATH
       const c = Math.min(G.heat, G.killCool);
       if (c > 0) { G.heat -= c; floatText(mo.x, mo.y, `열 −${c}`, '#FFB454'); }
@@ -1641,6 +1839,7 @@ function attack(mo) {
   const my = Math.max(1, effAtk() - mo.def);
   if (mo.t.ambush && !mo.wasHit) { takeHit(mo, '기습'); if (G.dead) return; }
   mo.wasHit = true;
+  gim()?.onNoise?.(G.map.px, G.map.py);
   hurt(mo, my);
   if (G.buff > 0) G.buff = 0;
   if (!mo.dead) {
@@ -1656,7 +1855,7 @@ function attack(mo) {
 }
 
 function takeHit(mo, tag) {
-  const dmg = Math.max(1, mo.atk - G.def);
+  const dmg = Math.max(1, mo.atk - G.def + (gim()?.zone?.()?.back || 0));
   G.bat -= dmg;
   floatText(G.map.px, G.map.py, '-' + dmg, '#FF4D5E');
   shake(Math.min(0.6, 0.15 + dmg / 90));
@@ -1801,6 +2000,7 @@ function useSkill(s, arg) {
     }
   }
   addHeat(cost);
+  gim()?.onNoise?.(m.px, m.py);
   if (s.cd) G.cd[s.id] = s.cd + 1;
   tickTurn();
   syncMeshes();
@@ -1981,7 +2181,7 @@ function pickComponent(ev) {
 }
 
 canvas.addEventListener('pointerdown', ev => {
-  if (phase === 'board') { const g = pickComponent(ev); if (g) selectComponent(g); return; }
+  if (phase === 'board') { const g = pickComponent(ev); if (g) tapComponent(g); return; }
   if (phase !== 'dungeon' || G.dead) return;
   const t = pickTile(ev);
   press = { t, x:ev.clientX, y:ev.clientY };
@@ -2127,6 +2327,10 @@ function stepWalk(dt) {
   const mapRef = G.map;
   const before = mapRef.mons.filter(o => !o.dead && mapRef.fog[o.y][o.x] !== 1).length;
   const s = wk.path[wk.i++];
+  // HAPTIC shoves parts around and BASEBAND drops new ones in, so a cell that was
+  // clear when the path was planned may not be clear when we get there
+  const blocker = monAt(s.x, s.y);
+  if (blocker) { G.walking = null; say('길이 막혔다 — 경로를 다시 잡아라'); sync(); return; }
   moveTo(s.x, s.y);
   sync();
 
@@ -2282,6 +2486,11 @@ function syncBuffs() {
   if (G.batBonus > 0) card('c', 'CELL', '+' + G.batBonus);
   if (G.fogBonus > 0) card('c', 'FOG', '+' + G.fogBonus + '/칸');
   if (G.killCool > 0) card('a', 'VENT', '−' + G.killCool);
+  const gm = gim();
+  const v = gm?.atk?.();
+  if (v) card(v > 0 ? 'g' : 'r', 'VOLT', (v > 0 ? '+' : '') + v, true);
+  const z = gm?.zone?.();
+  if (z) card('a', z.name, z.note);
   if (G.watchdog) card('c', 'WATCHDOG', '대기', true);
   if (G.shutdown > 0) card('r', 'SHUTDOWN', G.shutdown + '턴', true);
 
@@ -2482,6 +2691,7 @@ function tweenTo(props, ms, done) {
 
 function toBoard() {
   phase = 'board';
+  boardSel = null;
   $('hud').classList.remove('on');
   $('log').classList.remove('on');
   syncDock();
@@ -2504,6 +2714,22 @@ function updateBoardHalos() {
     // out would erase the one thing that tells the chips apart
     g.userData.pkg.material.color.setHex(done ? 0x33383E : 0xFFFFFF);
   });
+}
+
+// Now that every part plays by its own rule, choosing one blind is not a choice.
+// First tap reads the datasheet, second tap commits — same contract as the board.
+let boardSel = null;
+function tapComponent(g) {
+  const c = g.userData.comp;
+  if (G.cleared.includes(c.id)) { boardSel = null; hideInspect(); say('이미 장악한 소자다'); return; }
+  if (boardSel === c.id) { boardSel = null; hideInspect(); selectComponent(g); return; }
+  boardSel = c.id;
+  insEl.className = 'on';
+  insEl.innerHTML =
+    `<span class="nm">${c.name}</span> <span class="dt">${c.floors}개 층</span><br>` +
+    `<span class="dt">${c.gimmick}</span><br>` +
+    `<span class="dt"><b class="c">한 번 더 탭하면 진입</b></span>`;
+  icMeshes.forEach(o => o.userData.halo.material.emissiveIntensity = o === g ? 2.6 : 1.1);
 }
 
 function selectComponent(g) {

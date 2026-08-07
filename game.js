@@ -530,6 +530,63 @@ function pcbTex() {
     for (let i = 0; i < 3; i++) module(90 + i * 300, h - 130, 190, 64);
     module(w * 0.42, h - 210, 170, 60);                        // bottom connector block
 
+    // coax antenna runs — the white cables a teardown always shows hugging the rail
+    const coax = (pts, tone) => {
+      g.strokeStyle = tone; g.lineWidth = 7; g.lineCap = 'round'; g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
+      g.stroke();
+      g.strokeStyle = '#00000055'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(pts[0][0], pts[0][1] + 3);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1] + 3);
+      g.stroke();
+      // u.FL connector nubs at both ends
+      for (const [ex, ey] of [pts[0], pts.at(-1)]) {
+        g.fillStyle = '#B9BEC4'; g.beginPath(); g.arc(ex, ey, 8, 0, 7); g.fill();
+        g.fillStyle = '#3A3E45'; g.beginPath(); g.arc(ex, ey, 3.5, 0, 7); g.fill();
+      }
+    };
+    coax([[80, h * 0.075], [64, h * 0.2], [64, h * 0.52], [78, h * 0.585]], '#E8E4DC');
+    coax([[w - 78, h * 0.36], [w - 62, h * 0.44], [w - 62, h * 0.72], [w - 84, h * 0.8]], '#3E668F');
+
+    // silkscreen touches on the exposed strips
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#4A5058'; g.font = '600 15px ui-monospace, Menlo, monospace';
+    g.fillText('J9700', 84, 148);  g.fillText('BT/WLAN', w * 0.62, 132);
+    g.fillText('J4100', 96, h - 148); g.fillText('MIC2', w * 0.56, h - 90);
+    g.save(); g.translate(70, h * 0.42); g.rotate(-Math.PI / 2);
+    g.fillText('621-02786-A', 0, 0); g.restore();
+
+    // gold test pad clusters in the milled gaps
+    for (const [gx0, gy0, cols, rows] of [[w * 0.52, h * 0.045, 6, 2], [w * 0.08, h * 0.53, 2, 6],
+                                          [w * 0.72, h * 0.955, 5, 2], [w * 0.9, h * 0.09, 2, 4]]) {
+      g.fillStyle = '#C9A34C';
+      for (let a = 0; a < cols; a++) for (let b = 0; b < rows; b++) {
+        g.beginPath(); g.arc(gx0 + a * 18, gy0 + b * 18, 5.5, 0, 7); g.fill();
+      }
+    }
+
+    // stray passives — the dust of tiny resistors along every free edge
+    for (let i = 0; i < 90; i++) {
+      const px = 70 + R() * (w - 140), py = R() < 0.5 ? 60 + R() * 140 : h - 60 - R() * 190;
+      const vert = R() < 0.5, pw3 = vert ? 7 : 15, ph3 = vert ? 15 : 7;
+      g.fillStyle = ['#2B2117', '#3A3F45', '#4E3527', '#23282E'][(R() * 4) | 0];
+      g.fillRect(px, py, pw3, ph3);
+      g.fillStyle = '#B9BEC4';
+      if (vert) { g.fillRect(px, py, pw3, 3); g.fillRect(px, py + ph3 - 3, pw3, 3); }
+      else { g.fillRect(px, py, 3, ph3); g.fillRect(px + pw3 - 3, py, 3, ph3); }
+    }
+
+    // speaker mesh strip along the bottom edge, sim tray slot on the left rail
+    g.fillStyle = '#0A0C0E';
+    for (let x = w * 0.16; x < w * 0.5; x += 14) {
+      g.beginPath(); g.arc(x, h - 56, 4, 0, 7); g.fill();
+      g.beginPath(); g.arc(x + 7, h - 42, 4, 0, 7); g.fill();
+    }
+    g.fillStyle = '#2B333E'; g.fillRect(2, h * 0.685, 30, 170);
+    g.strokeStyle = '#556880'; g.lineWidth = 2; g.strokeRect(2, h * 0.685, 30, 170);
+    g.fillStyle = '#8A97A8'; g.beginPath(); g.arc(17, h * 0.685 + 150, 5, 0, 7); g.fill();
+
     // screws — bright silver philips, everywhere a real frame has them
     const screw = (x, y) => {
       g.fillStyle = '#0C0E11'; g.beginPath(); g.arc(x, y, 12, 0, 7); g.fill();
@@ -588,6 +645,16 @@ function pouchTex() {
     g.fillStyle = grad; g.fillRect(0, 0, w, h);
     g.fillStyle = '#FFFFFF08';
     g.beginPath(); g.moveTo(0, 0); g.lineTo(w * 0.5, 0); g.lineTo(0, h * 0.62); g.fill();
+    // foil crinkle — faint diagonal creases the wrap always shows
+    for (let i = 0; i < 26; i++) {
+      g.globalAlpha = 0.03 + R() * 0.05;
+      g.strokeStyle = R() < 0.5 ? '#FFFFFF' : '#000000';
+      g.lineWidth = 1 + R() * 1.6;
+      const cx0 = R() * w, cy0 = R() * h, len = 40 + R() * 160, an = (R() - 0.5) * 1.2;
+      g.beginPath(); g.moveTo(cx0, cy0);
+      g.lineTo(cx0 + Math.cos(an) * len, cy0 + Math.sin(an) * len); g.stroke();
+    }
+    g.globalAlpha = 1;
     g.strokeStyle = '#26282C'; g.lineWidth = 6;             // sealed edge
     g.strokeRect(6, 6, w - 12, h - 12);
 
@@ -596,6 +663,31 @@ function pouchTex() {
     g.fillStyle = '#3A3D42';
     g.font = '700 64px ui-monospace, Menlo, monospace';
     g.fillText('▣', w / 2, h * 0.3);
+
+    // service barcode strip + data-matrix, mid-cell, like every pull-tab label
+    g.fillStyle = '#17181B'; g.fillRect(w * 0.16, h * 0.44, w * 0.68, 66);
+    g.strokeStyle = '#26282C'; g.lineWidth = 2; g.strokeRect(w * 0.16, h * 0.44, w * 0.68, 66);
+    for (let x = w * 0.2; x < w * 0.62; x += 3) {
+      if (R() < 0.62) { g.fillStyle = '#8A9096'; g.fillRect(x, h * 0.44 + 12, R() < 0.3 ? 3 : 1.5, 34); }
+    }
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#6E747B'; g.font = '500 12px ui-monospace, Menlo, monospace';
+    g.fillText(`SN F8${(R() * 10 | 0)}K${1000 + (R() * 8999 | 0)}PLJK`, w * 0.2, h * 0.44 + 60);
+    const qs = 4.6, qx0 = w * 0.66, qy0 = h * 0.44 + 10;
+    for (let a = 0; a < 10; a++) for (let b = 0; b < 10; b++)
+      if ((a + b) % 2 === 0 || R() < 0.4) { g.fillStyle = '#7C828A'; g.fillRect(qx0 + a * qs, qy0 + b * qs, qs, qs); }
+
+    // certification glyph row — boxes and crossed-out bin, drawn dumb on purpose
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const gy = h * 0.585;
+    g.strokeStyle = '#5E646B'; g.lineWidth = 2;
+    g.font = '700 20px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = '#5E646B';
+    g.fillText('CE', w * 0.3, gy); g.strokeRect(w * 0.3 - 22, gy - 15, 44, 30);
+    g.fillText('UK', w * 0.44, gy); g.strokeRect(w * 0.44 - 22, gy - 15, 44, 30);
+    g.strokeRect(w * 0.58 - 13, gy - 13, 26, 20);            // the little wheelie bin
+    g.beginPath(); g.moveTo(w * 0.58 - 18, gy + 13); g.lineTo(w * 0.58 + 18, gy - 15); g.stroke();
+    g.beginPath(); g.arc(w * 0.7, gy, 14, 0, 7); g.stroke(); // loop mark
+    g.beginPath(); g.arc(w * 0.7, gy, 7, 0, 7); g.stroke();
 
     // the fine print block every cell carries, at the foot
     g.fillStyle = '#8A9096';
@@ -624,17 +716,46 @@ function shieldTex(seed, name, aspect) {
       g.fillStyle = R() < 0.5 ? '#9AA0A6' : '#E9EDF0';
       g.fillRect(0, R() * h, w, 1 + R() * 2);
     }
+    // mottled heat-stain blotches a drawn can picks up
+    for (let i = 0; i < 12; i++) {
+      g.globalAlpha = 0.04 + R() * 0.05;
+      g.fillStyle = R() < 0.5 ? '#8E959C' : '#D6DBDF';
+      g.beginPath(); g.arc(R() * w, R() * h, 14 + R() * 30, 0, 7); g.fill();
+    }
     g.globalAlpha = 1;
     g.strokeStyle = '#A6ABB1'; g.lineWidth = 6;          // stamped step edge
     g.strokeRect(9, 9, w - 18, h - 18);
     g.strokeStyle = '#DDE1E5'; g.lineWidth = 2;
     g.strokeRect(15.5, 15.5, w - 31, h - 31);
-    // spot-weld dimples down the rim — the only decoration a real can has
-    g.fillStyle = '#9296 9C'.replace(' ', '');
-    for (let i = 0; i < Math.max(3, (w / 60) | 0); i++) {
-      g.beginPath(); g.arc(30 + i * 58, h - 22, 5, 0, 7); g.fill();
-      g.beginPath(); g.arc(30 + i * 58, 22, 5, 0, 7); g.fill();
+    // a can is several cans — pressed seams split it into bays
+    const bays = 1 + ((seed + w) % 3);
+    for (let i = 1; i <= bays; i++) {
+      const sx = (w - 30) * i / (bays + 1) + 15 + (R() - 0.5) * 20;
+      g.strokeStyle = '#A6ABB1'; g.lineWidth = 3; g.beginPath();
+      g.moveTo(sx, 12); g.lineTo(sx, h - 12); g.stroke();
+      g.strokeStyle = '#DDE1E5'; g.lineWidth = 1; g.beginPath();
+      g.moveTo(sx + 2.5, 14); g.lineTo(sx + 2.5, h - 14); g.stroke();
     }
+    // spot-weld dimples all the way round the rim
+    g.fillStyle = '#92969C';
+    for (let x = 30; x < w - 16; x += 34) {
+      g.beginPath(); g.arc(x, 22, 4.5, 0, 7); g.fill();
+      g.beginPath(); g.arc(x, h - 22, 4.5, 0, 7); g.fill();
+    }
+    for (let y = 52; y < h - 40; y += 34) {
+      g.beginPath(); g.arc(22, y, 4.5, 0, 7); g.fill();
+      g.beginPath(); g.arc(w - 22, y, 4.5, 0, 7); g.fill();
+    }
+    // laser-etched compliance block in a corner — unreadable, but present
+    const R2 = prng(seed * 977 + 5);
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#9DA3A9';
+    g.font = '600 11px ui-monospace, Menlo, monospace';
+    const lot = `${String.fromCharCode(65 + (R2() * 26 | 0))}${String.fromCharCode(65 + (R2() * 26 | 0))}${100 + (R2() * 899 | 0)}`;
+    g.fillText(`339S0${1000 + (R2() * 8999 | 0)}`, 26, h - 44);
+    g.font = '500 9px ui-monospace, Menlo, monospace';
+    g.fillStyle = '#A8ADB3';
+    g.fillText(`${lot} · H1D ${23 + (R2() * 4 | 0)}${10 + (R2() * 42 | 0)}`, 26, h - 32);
     // 이름은 유령 에칭 — 사진의 실드에는 글씨가 없다
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillStyle = '#ADB2B8';
@@ -662,18 +783,47 @@ function blackChipTex(name, sub, aspect) {
       g.font = `600 ${Math.round(Math.min(h * 0.17, w * 0.07))}px ui-sans-serif, system-ui, sans-serif`;
       g.fillText(sub, w / 2, h * 0.62);
     }
+    // lot and origin rows in laser grey, the way the photo's AP is marked
+    g.fillStyle = '#6E747B';
+    g.font = `500 ${Math.round(Math.min(h * 0.09, w * 0.04))}px ui-monospace, Menlo, monospace`;
+    g.fillText(`339S0${5000 + (R() * 4999 | 0)}  ${String.fromCharCode(65 + (R() * 26 | 0))}${100 + (R() * 899 | 0)}${String.fromCharCode(65 + (R() * 26 | 0))}`, w / 2, h * 0.8);
+    g.fillText(`H1D${20 + (R() * 8 | 0)}${10 + (R() * 42 | 0)} · KOREA`, w / 2, h * 0.895);
+    // pin-1 index, laser dot
+    g.fillStyle = '#B9BEC4';
+    g.beginPath(); g.arc(w * 0.09, h * 0.12, Math.min(w, h) * 0.022, 0, 7); g.fill();
+    // data-matrix stamp in the free corner
+    const R3 = prng(423), q = Math.min(w, h) * 0.015, qx = w * 0.86, qy = h * 0.1;
+    for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++)
+      if (R3() < 0.5) { g.fillStyle = '#7C828A'; g.fillRect(qx + a * q, qy + b * q, q, q); }
   });
 }
 
 function speakerTex() {
   return canvasTex(320, 220, (g, w, h) => {
+    const R = prng(808);
     g.fillStyle = '#1B1E22';
     g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 90, ['#15181B', '#23272C'], 2, 5, R);
+    // rubber acoustic gasket ring inside the box edge
+    g.strokeStyle = '#0E1013'; g.lineWidth = 8; g.strokeRect(10, 10, w - 20, h - 20);
     g.strokeStyle = '#2C3036'; g.lineWidth = 3; g.strokeRect(6.5, 6.5, w - 13, h - 13);
     g.fillStyle = '#0C0E11';
     for (let a = 0; a < 12; a++) for (let b = 0; b < 7; b++) {
       g.beginPath(); g.arc(34 + a * 23, 40 + b * 21, 5, 0, 7); g.fill();
     }
+    // grille dots catch light on one side
+    g.fillStyle = '#33383E';
+    for (let a = 0; a < 12; a++) for (let b = 0; b < 7; b++) {
+      g.beginPath(); g.arc(34 + a * 23 - 1.5, 40 + b * 21 - 1.5, 1.6, 0, 7); g.fill();
+    }
+    // kapton service strip across a corner
+    g.globalAlpha = 0.85; g.fillStyle = '#B98A2E';
+    g.save(); g.translate(w * 0.8, h * 0.16); g.rotate(-0.32);
+    g.fillRect(-52, -11, 104, 22); g.restore();
+    g.globalAlpha = 1;
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    g.fillStyle = '#565C63'; g.font = '600 11px ui-monospace, Menlo, monospace';
+    g.fillText('AUDIO CODEC · CS42L84', 16, h - 14);
   });
 }
 
@@ -804,8 +954,23 @@ function buildBoard() {
           ring.scale.set(r * 2.2, r * 2.2, 1.1); ring.position.set(lx, 0.6, lz);
           const lens = new THREE.Mesh(CYL, mat({ color:0x14213A, roughness:0.05, metalness:0.3 }));
           lens.scale.set(r * 0.55, 0.02, r * 0.55); lens.position.set(lx, 0.6, lz);
-          g.add(barrel, ring, lens);
+          // sapphire glint off-centre — lenses read flat without one
+          const glint = new THREE.Mesh(CYL, mat({ color:0x8FB6D9, roughness:0.1, metalness:0.2,
+            emissive:0x35506B, emissiveIntensity:0.5 }));
+          glint.scale.set(r * 0.13, 0.015, r * 0.13); glint.position.set(lx - r * 0.22, 0.62, lz - r * 0.22);
+          g.add(barrel, ring, lens, glint);
         }
+        // bracket philips screws + the flash window beside the lenses
+        for (const [sx2, sz2] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+          const sc = new THREE.Mesh(CYL, mat({ color:0xC9CED3, roughness:0.3, metalness:0.9 }));
+          sc.scale.set(0.09, 0.04, 0.09);
+          sc.position.set(sx2 * (c.w / 2 - 0.22), 0.44, sz2 * (c.d / 2 - 0.22));
+          g.add(sc);
+        }
+        const flash = new THREE.Mesh(BOX, mat({ color:0xE8D9A8, roughness:0.25,
+          emissive:0xB99A4A, emissiveIntensity:0.45 }));
+        flash.scale.set(0.34, 0.03, 0.34); flash.position.set(0.85, 0.44, -0.85);
+        g.add(flash);
         break;
       }
       case 'batt': {                           // the pouch, with pull tabs
@@ -874,6 +1039,56 @@ function buildBoard() {
     boardGroup.add(g);
     icMeshes.push(g);
   });
+
+  // ── surface-mount dust ──
+  // A real frame is never empty: the strips the big parts leave open are
+  // carpeted in passives, connectors and tape. All decorative, none pickable.
+  const R = prng(41);
+  const passiveMats = [0x2B2117, 0x3A3F45, 0x4E3527, 0x23282E]
+    .map(cl => mat({ color: cl, roughness: 0.55, metalness: 0.3 }));
+  const capMat = mat({ color: 0xB9BEC4, roughness: 0.35, metalness: 0.85 });
+  const dust = (x0, z0, x1, z1, n) => {
+    for (let i = 0; i < n; i++) {
+      const p = new THREE.Mesh(BOX, passiveMats[(R() * passiveMats.length) | 0]);
+      const vert = R() < 0.5, s = 0.07 + R() * 0.08;
+      p.scale.set(vert ? s : s * 2.1, 0.05, vert ? s * 2.1 : s);
+      p.position.set(x0 + R() * (x1 - x0), 0.025, z0 + R() * (z1 - z0));
+      p.castShadow = true;
+      boardGroup.add(p);
+      if (R() < 0.3) {                       // some are silver MLCC cans
+        const t = new THREE.Mesh(BOX, capMat);
+        t.scale.copy(p.scale).multiplyScalar(0.9); t.scale.y = 0.055;
+        t.position.copy(p.position);
+        boardGroup.add(t); boardGroup.remove(p);
+      }
+    }
+  };
+  dust(0.6, 1.4, 3.0, 3.8, 26);              // right mid-field, under the logic column
+  dust(-2.95, 3.15, 0.3, 3.85, 20);          // the strip below the cell
+  dust(-2.9, -6.8, 0.0, -6.15, 12);          // top edge beside the display flex
+  dust(0.45, -6.85, 3.0, -6.55, 8);          // above the touch flex
+
+  // board-to-board connectors along the logic island's flank
+  for (const [bx, bz] of [[0.42, -3.3], [0.42, -1.2], [1.0, 1.55], [2.4, 1.55]]) {
+    const bb = new THREE.Mesh(BOX, mat({ color: 0xB9BEC4, roughness: 0.3, metalness: 0.85 }));
+    bb.scale.set(0.5, 0.09, 0.2); bb.position.set(bx, 0.045, bz);
+    const key = new THREE.Mesh(BOX, mat({ color: 0x17191D, roughness: 0.6 }));
+    key.scale.set(0.4, 0.04, 0.1); key.position.set(bx, 0.1, bz);
+    bb.castShadow = true;
+    boardGroup.add(bb, key);
+  }
+
+  // kapton service tape, half-transparent amber, thrown over the seams
+  const tapeMat = mat({ color: 0xC08A2E, roughness: 0.5, metalness: 0.15,
+    transparent: true, opacity: 0.5 });
+  for (const [tx2, tz2, tw2, td2, ta] of [[0.42, -5.75, 0.55, 0.32, 0.35], [-0.9, 3.5, 1.0, 0.34, -0.1],
+                                          [2.55, 2.2, 0.34, 0.8, 0.06]]) {
+    const tape = new THREE.Mesh(BOX, tapeMat);
+    tape.scale.set(tw2, 0.012, td2);
+    tape.position.set(tx2, 0.06, tz2);
+    tape.rotation.y = ta;
+    boardGroup.add(tape);
+  }
 
   // glass screen on top — this is what dissolves during boot
   glassMesh = new THREE.Mesh(BOX, M.glass);

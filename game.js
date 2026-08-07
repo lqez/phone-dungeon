@@ -1661,21 +1661,24 @@ function buildDungeon() {
   vg.userData = { gx:m.via.x, gy:m.via.y, ring };
   dunGroup.add(vg); viaObj = vg;
 
-  // A coil is a pair, so draw it as one: two flat windings in the colour its twin
-  // shares, plus a ferrite slug, so it never reads as an empty pickup ring.
+  // A coil is a pair, so draw it as one: flat windings in the metal its twin
+  // shares. Etched into the board, not lying on it — items glow, the floor
+  // doesn't, so the pad stays matte copper and only the hue names its twin.
   (m.coils || []).forEach(([a, b2], i) => {
-    const col = [0x4DE0D0, 0xB673C9, 0x6BD98A][i % 3];
+    const col = [0xA9622E, 0x8F949C, 0x7A6B3E][i % 3];   // copper / tin / brass
     for (const c of [a, b2]) {
       const g2 = new THREE.Group();
-      for (const r of [1.15, 0.72]) {
-        const w2 = new THREE.Mesh(TOR, emissive(col, 1.5));
+      for (const r of [1.15, 0.85, 0.55]) {
+        const w2 = new THREE.Mesh(TOR, mat({ color: col, roughness: 0.4, metalness: 0.85,
+          emissive: col, emissiveIntensity: 0.22 }));
         w2.rotation.x = Math.PI / 2;
-        w2.scale.set(r, r, 0.8);
-        w2.position.y = 0.05;
+        w2.scale.set(r, r, 0.5);
+        w2.position.y = 0.03;
         g2.add(w2);
       }
-      const slug = new THREE.Mesh(CYL, emissive(col, 0.9));
-      slug.scale.set(0.22, 0.09, 0.22); slug.position.y = 0.05;
+      const slug = new THREE.Mesh(CYL, mat({ color: 0x2A2C30, roughness: 0.7, metalness: 0.4,
+        emissive: col, emissiveIntensity: 0.12 }));
+      slug.scale.set(0.2, 0.05, 0.2); slug.position.y = 0.03;
       g2.add(slug);
       g2.position.set(gx2w(c.x), 0, gy2w(c.y));
       g2.userData = { coil: c };

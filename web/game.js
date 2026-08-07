@@ -1315,12 +1315,14 @@ const GIM = {
       const m = G.map;
       for (const [a, b] of m.coils || []) {
         const to = (a.x === x && a.y === y) ? b : (b.x === x && b.y === y) ? a : null;
-        if (!to || monAt(to.x, to.y)) continue;
+        if (!to) continue;
+        // a camped twin refuses the jump — say so, or the pad reads as broken
+        if (monAt(to.x, to.y)) { say('<b class="r">반대편 코일이 점유됐다</b> — 결합 불가'); return false; }
         m.px = to.x; m.py = to.y;
         G.walking = null;                    // the planned path started somewhere else
         gainFromFog(revealFog(m, to.x, to.y, 1));
         placePlayer(true); syncMeshes();
-        say('<b class="c">코일 결합</b> — 반대편으로 넘어갔다');
+        say('<b class="c">코일 결합</b> — 반대편으로 넘어갔다. 다시 밟으면 돌아온다');
         return true;
       }
       return false;
@@ -2290,6 +2292,10 @@ function findPath(sx, sy, tx, ty) {
     if (!isGoal) {
       if (m.items.some(i => !i.taken && i.x === x && i.y === y)) return false;
       if (m.via.x === x && m.via.y === y) return false;
+      // coils fling on contact, so a route never crosses one by accident —
+      // jumping is something you tap, not something that happens to you
+      if ((m.coils || []).some(([a, b]) => (a.x === x && a.y === y) || (b.x === x && b.y === y)))
+        return false;
     }
     return true;
   };
@@ -2759,11 +2765,14 @@ function planTo(x, y) {
     const onVia = m.via.x === x && m.via.y === y;
     if (onVia) showExitInspect(); else hideInspect();
     const it = m.items.find(i => !i.taken && i.x === x && i.y === y);
+    const onCoil = (m.coils || []).some(([a, b]) => (a.x === x && a.y === y) || (b.x === x && b.y === y));
     const note = walkNote(path);
     say(it ? `${note} — <b class="a">${it.t.name}</b>을 밟는다. 한 번 더 탭`
            : onVia
              ? `${note} — <b class="a">VIA로 하강</b>한다. 한 번 더 탭`
-             : `${note} — 한 번 더 탭하면 실행`);
+             : onCoil
+               ? `${note} — <b class="c">코일 결합</b>, 반대편으로 점프한다. 한 번 더 탭`
+               : `${note} — 한 번 더 탭하면 실행`);
   }
   drawGhost();
   coach('confirm');

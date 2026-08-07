@@ -47,10 +47,10 @@ const COMPONENTS = [
 
 const MONSTERS = [
   { id:'zombie',  name:'ZOMBIE PROC', shape:'chip',    col:0x8B9BA8, hp:1.00, atk:1.00, def:0, note:'평범하다' },
-  { id:'bitrot',  name:'BIT ROT',     shape:'diamond', col:0xC87137, hp:0.60, atk:1.45, def:0, note:'유리대포 — 약하지만 아프다' },
-  { id:'esd',     name:'ESD',         shape:'hex',     col:0x7FA8C9, hp:1.35, atk:0.80, def:1, note:'방어가 높다' },
-  { id:'adware',  name:'ADWARE',      shape:'blob',    col:0xB673C9, hp:0.90, atk:0.85, def:0, note:'교전하면 발열한다' },
-  { id:'deadlock',name:'DEADLOCK',    shape:'chip',    col:0xFF4D5E, hp:1.10, atk:1.15, def:0, note:'선공 — 먼저 때린다', ambush:true },
+  { id:'bitrot',  name:'BIT ROT',     shape:'res', col:0xC87137, hp:0.60, atk:1.45, def:0, note:'유리대포 — 약하지만 아프다' },
+  { id:'esd',     name:'ESD',         shape:'cap',     col:0x7FA8C9, hp:1.35, atk:0.80, def:1, note:'방어가 높다' },
+  { id:'adware',  name:'ADWARE',      shape:'ind',    col:0xB673C9, hp:0.90, atk:0.85, def:0, note:'교전하면 발열한다' },
+  { id:'deadlock',name:'DEADLOCK',    shape:'diode',   col:0xFF4D5E, hp:1.10, atk:1.15, def:0, note:'선공 — 먼저 때린다', ambush:true },
 ];
 const BOSS = { id:'panic', name:'KERNEL PANIC', shape:'boss', col:0xFF4D5E, hp:2.2, atk:1.3, def:1, note:'보스', boss:true };
 
@@ -259,17 +259,42 @@ function speckle(g, w, h, n, colors, r0, r1, R) {
   g.globalAlpha = 1;
 }
 
+// ───────────── depth tiers ─────────────
+// The board is only the surface. Go deep enough and you are inside the die, and
+// deeper still inside a cell — each tier repaints floor, pour and lid.
+const TIERS = [
+  { at: 0,  id:'board', name:'BOARD SURFACE', note:'솔더마스크 위 — 구리 푸어가 벽이다',
+    pal: { base:'#12423A', base2:'#113E37', speck:['#0D332E', '#164C43'],
+           trace:'#1A564C', live:'#2E8877', hi:'#215A50', hiLive:'#49B9A2',
+           seam:'#0C312B', pour:'#B4652F', pourHi:'#C27743', pourLo:'#8E4F26',
+           lid:'#1B2732', lidSpeck:['#161F27', '#1F2B36'], lidGrid:'#1D2833',
+           sub:'#081A18', subSpeck:['#06120F', '#0C2320'], subLine:'#0E2A26' } },
+  { at: 5,  id:'die',   name:'DIE INTERIOR',  note:'패키지를 뚫고 실리콘 안으로',
+    pal: { base:'#1B2A38', base2:'#192736', speck:['#141F2A', '#233648'],
+           trace:'#2B4358', live:'#3E7FB0', hi:'#365068', hiLive:'#63B4E4',
+           seam:'#131E29', pour:'#93A0AC', pourHi:'#B6C2CC', pourLo:'#6B7783',
+           lid:'#141A22', lidSpeck:['#101519', '#1A222C'], lidGrid:'#1A2029',
+           sub:'#0A1017', subSpeck:['#070B10', '#111A24'], subLine:'#16202B' } },
+  { at: 10, id:'cell',  name:'ELECTROLYTE',   note:'전해질 속 — 포일과 세퍼레이터 사이',
+    pal: { base:'#3A2716', base2:'#372414', speck:['#2B1C0F', '#4C351D'],
+           trace:'#573A1E', live:'#B8813A', hi:'#6B4926', hiLive:'#E8B769',
+           seam:'#241708', pour:'#A9A296', pourHi:'#C9C3B7', pourLo:'#7D766A',
+           lid:'#20160D', lidSpeck:['#1A1109', '#2A1E12'], lidGrid:'#2A1E12',
+           sub:'#150E07', subSpeck:['#100A05', '#221708'], subLine:'#2A1C0C' } },
+];
+const tierOf = d => TIERS.reduce((a, t) => d >= t.at ? t : a, TIERS[0]);
+
 // ───────────── die interior: one metal layer, seen from above ─────────────
 // Every cell shows this whole texture, so anything that reads as a self-contained
 // motif turns the floor into a tray of tiles. Tracks therefore run the full width
 // or height at a fixed pitch: they meet across the seam and the field reads as one
 // continuous metal layer that happens to be walked on in grid steps.
-function dieMetalTex(variant) {
+function dieMetalTex(variant, P) {
   return canvasTex(128, 128, (g, w, h) => {
     const R = prng(variant * 7717 + 13);
-    g.fillStyle = variant ? '#113E37' : '#12423A';       // near-identical: no checkerboard
+    g.fillStyle = variant ? P.base2 : P.base;            // near-identical: no checkerboard
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 70, ['#0D332E', '#164C43'], 2, 5, R);
+    speckle(g, w, h, 70, P.speck, 2, 5, R);
 
     const pitch = 16, off = variant ? 8 : 0;
     for (let i = 0; i < 8; i++) {
@@ -277,62 +302,93 @@ function dieMetalTex(variant) {
       if (R() < 0.42) continue;                          // not every lane is routed
       const live = R() < 0.22;
       const vert = ((i + variant) % 2) === 0;
-      g.fillStyle = live ? '#2E8877' : '#1A564C';
+      g.fillStyle = live ? P.live : P.trace;
       if (vert) g.fillRect(p, 0, 4, h); else g.fillRect(0, p, w, 4);
-      g.fillStyle = live ? '#49B9A2' : '#215A50';
+      g.fillStyle = live ? P.hiLive : P.hi;
       if (vert) g.fillRect(p, 0, 1, h); else g.fillRect(0, p, w, 1);
     }
 
     // vias sit on the lanes, so they line up across the seam too
     for (let i = 0; i < 5; i++) {
       const x = ((R() * 8) | 0) * pitch + off, y = ((R() * 8) | 0) * pitch;
-      g.fillStyle = '#0A211E'; g.fillRect(x - 1, y - 1, 8, 8);
+      g.fillStyle = P.seam; g.fillRect(x - 1, y - 1, 8, 8);
       g.fillStyle = '#8A6A2E'; g.fillRect(x, y, 6, 6);
       g.fillStyle = '#C89B44'; g.fillRect(x + 1, y + 1, 3, 3);
     }
 
     // the faintest seam, so a grid step is still legible without drawing a box
-    g.fillStyle = '#0C312B';
+    g.fillStyle = P.seam;
+    g.fillRect(0, 0, w, 1); g.fillRect(0, 0, 1, h);
+  });
+}
+
+// ───────────── electrolyte: wound foil and separator, not routing ─────────────
+function electrolyteTex(variant, P) {
+  return canvasTex(128, 128, (g, w, h) => {
+    const R = prng(variant * 313 + 91);
+    g.fillStyle = variant ? P.base2 : P.base;
+    g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 110, P.speck, 3, 9, R);
+    // the winding: soaked separator layers running edge to edge, gently waved
+    for (let i = 0; i < 9; i++) {
+      const y0 = i * 16 + (variant ? 8 : 0);
+      const lit = i % 3 === 0;
+      g.strokeStyle = lit ? P.live : P.trace; g.lineWidth = 3;
+      g.beginPath();
+      for (let x = 0; x <= 128; x += 8) g.lineTo(x, y0 + Math.sin((x / 128 + i) * 3.1) * 3);
+      g.stroke();
+      g.strokeStyle = lit ? P.hiLive : P.hi; g.lineWidth = 1;
+      g.beginPath();
+      for (let x = 0; x <= 128; x += 8) g.lineTo(x, y0 - 2 + Math.sin((x / 128 + i) * 3.1) * 3);
+      g.stroke();
+    }
+    // gas trapped between the layers
+    for (let i = 0; i < 7; i++) {
+      g.fillStyle = P.hiLive; g.globalAlpha = 0.25 + R() * 0.3;
+      g.beginPath(); g.arc(R() * 128, R() * 128, 1.5 + R() * 3, 0, 7); g.fill();
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = P.seam;
     g.fillRect(0, 0, w, 1); g.fillRect(0, 0, 1, h);
   });
 }
 
 // ───────────── copper pour: the walls, flooded flat like a ground plane ─────────────
-function copperPourTex() {
+function copperPourTex(P) {
   return canvasTex(128, 128, (g, w, h) => {
     const R = prng(6151);
-    g.fillStyle = '#B4652F';
+    g.fillStyle = P.pour;
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 130, ['#9A5528', '#D08A4A'], 3, 8, R);
+    speckle(g, w, h, 130, [P.pourLo, P.pourHi], 3, 8, R);
     // thermal-relief hatch, running corner to corner so runs of pour join up
-    g.strokeStyle = '#8E4F26'; g.lineWidth = 2;
+    g.strokeStyle = P.pourLo; g.lineWidth = 2;
     for (let d = -128; d < 256; d += 14) {
       g.beginPath(); g.moveTo(d, 0); g.lineTo(d + 128, 128); g.stroke();
     }
-    g.strokeStyle = '#C27743'; g.lineWidth = 1;
+    g.strokeStyle = P.pourHi; g.lineWidth = 1;
     for (let d = -128; d < 256; d += 14) {
       g.beginPath(); g.moveTo(d + 1, 0); g.lineTo(d + 129, 128); g.stroke();
     }
-    g.fillStyle = '#E09A5A55';                            // faint oxidised sheen
+    g.fillStyle = P.pourHi + '55';                        // faint oxidised sheen
     g.fillRect(0, 0, w, 2);
   });
 }
 
 // ───────────── passivation lid: what an un-etched region looks like ─────────────
-function passivationTex() {
+function passivationTex(P) {
   return canvasTex(128, 128, (g, w, h) => {
     const R = prng(4211);
-    g.fillStyle = '#1B2732';
+    g.fillStyle = P.lid;
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 120, ['#161F27', '#1F2B36'], 2, 6, R);
+    speckle(g, w, h, 120, P.lidSpeck, 2, 6, R);
     // barely-there lattice: the lid should read as an unbroken sheet, not a grid
-    g.strokeStyle = '#1D2833'; g.lineWidth = 1;
+    g.strokeStyle = P.lidGrid; g.lineWidth = 1;
     for (let p = 0; p <= 128; p += 32) {
       g.beginPath(); g.moveTo(p + .5, 0); g.lineTo(p + .5, h); g.stroke();
       g.beginPath(); g.moveTo(0, p + .5); g.lineTo(w, p + .5); g.stroke();
     }
     // dull shapes buried under the lid — you can almost see the layout
-    g.fillStyle = '#1F2C37';
+    g.fillStyle = P.lidGrid;
     for (let i = 0; i < 5; i++) g.fillRect(R() * 100, R() * 100, 12 + R() * 22, 8 + R() * 14);
   });
 }
@@ -358,17 +414,17 @@ function copperTex(dark) {
 }
 
 // ───────────── silicon substrate under the die ─────────────
-function substrateTex() {
+function substrateTex(P) {
   return canvasTex(256, 256, (g, w, h) => {
     const R = prng(77);
-    g.fillStyle = '#081A18';
+    g.fillStyle = P.sub;
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 200, ['#06120F', '#0C2320'], 2, 7, R);
-    g.strokeStyle = '#0E2A26'; g.lineWidth = 2;
+    speckle(g, w, h, 200, P.subSpeck, 2, 7, R);
+    g.strokeStyle = P.subLine; g.lineWidth = 2;
     for (let i = 0; i < 26; i++) {                       // deep routing, half buried
-      const v = R() < 0.5, p = R() * 256, s = R() * 200, l = 30 + R() * 120;
+      const v = R() < 0.5, p = R() * 256, s2 = R() * 200, l = 30 + R() * 120;
       g.beginPath();
-      if (v) { g.moveTo(p, s); g.lineTo(p, s + l); } else { g.moveTo(s, p); g.lineTo(s + l, p); }
+      if (v) { g.moveTo(p, s2); g.lineTo(p, s2 + l); } else { g.moveTo(s2, p); g.lineTo(s2 + l, p); }
       g.stroke();
     }
   });
@@ -570,15 +626,37 @@ function paintMaterials() {
     m.needsUpdate = true;
   };
   skin(M.pcb, pcbTex(), { roughness: 0.62, metalness: 0.1 });
-  skin(M.pcbDark, substrateTex(), { roughness: 0.9 });
-  skin(M.copper, copperPourTex(), { roughness: 0.42, metalness: 0.8 });
   skin(M.copperD, copperTex(true), { roughness: 0.5, metalness: 0.7 });
   skin(M.chipBody, pkgTex(31, 'DIE', 1), { roughness: 0.62, metalness: 0.28 });
   M.pouch = mat({ color:0xFFFFFF, map: pouchTex(), roughness: 0.42, metalness: 0.55 });
-  skin(M.fog, passivationTex(), { roughness: 0.96 });
-  const a = dieMetalTex(0), b = dieMetalTex(1);
-  skin(M.floor, a, { emissiveMap: a, emissive: new THREE.Color(0x2E8877), emissiveIntensity: 0.5, roughness: 0.62, metalness: 0.3 });
-  skin(M.floorAlt, b, { emissiveMap: b, emissive: new THREE.Color(0x2E8877), emissiveIntensity: 0.42, roughness: 0.62, metalness: 0.3 });
+  for (const t of TIERS) TIER_MAT[t.id] = buildTierMats(t);
+  applyTier(TIERS[0]);
+}
+
+// ───────────── one material set per tier, built once ─────────────
+const TIER_MAT = {};
+function buildTierMats(t) {
+  const P = t.pal;
+  const floorTex = t.id === 'cell' ? electrolyteTex : dieMetalTex;
+  const a = floorTex(0, P), b = floorTex(1, P);
+  const glow = new THREE.Color(P.hiLive);
+  const skin = (map, o) => mat(Object.assign({ color: 0xFFFFFF, map }, o));
+  return {
+    floor:    skin(a, { emissiveMap: a, emissive: glow, emissiveIntensity: 0.5, roughness: 0.62, metalness: 0.3 }),
+    floorAlt: skin(b, { emissiveMap: b, emissive: glow, emissiveIntensity: 0.42, roughness: 0.62, metalness: 0.3 }),
+    pour:     skin(copperPourTex(P), { roughness: t.id === 'board' ? 0.42 : 0.3, metalness: 0.85 }),
+    lid:      skin(passivationTex(P), { roughness: 0.96 }),
+    sub:      skin(substrateTex(P), { roughness: 0.9 }),
+  };
+}
+
+// swap the dungeon palette wholesale — the tier is what "how deep am I" looks like
+let tier = TIERS[0];
+function applyTier(t) {
+  tier = t;
+  const s = TIER_MAT[t.id];
+  M.floor = s.floor; M.floorAlt = s.floorAlt;
+  M.copper = s.pour; M.fog = s.lid; M.pcbDark = s.sub;
 }
 
 function buildBoard() {
@@ -737,36 +815,47 @@ function effAtk() {
 
 // ───────────── map generation ─────────────
 function genMap(depth) {
-  let wall, px, py, tries = 0;
+  const px = 4, py = H - 2;
+  let wall, reach, tries = 0;
   do {
     tries++;
-    wall = Array.from({ length: H }, () => new Array(W).fill(0));
-    for (let i = 0, runs = ri(5, 8); i < runs; i++) {
-      const horiz = rnd() < 0.5;
-      let x = ri(0, W - 1), y = ri(0, H - 1);
-      for (let j = 0, len = ri(2, horiz ? 5 : 6); j < len; j++) {
-        if (x >= 0 && x < W && y >= 0 && y < H) wall[y][x] = 1;
-        if (horiz) x++; else y++;
-        if (rnd() < 0.22) { if (horiz) y += rnd() < .5 ? 1 : -1; else x += rnd() < .5 ? 1 : -1; }
-      }
+    wall = Array.from({ length: H }, () => new Array(W).fill(1));   // solid pour
+
+    // pads: the wide spots. Everything else is a run between them.
+    const pads = [{ x: px, y: py }];
+    for (let i = 0, n = ri(3, 5); i < n; i++) pads.push({ x: ri(1, W - 2), y: ri(2, H - 3) });
+    pads.push({ x: ri(1, W - 2), y: ri(0, 1) });                    // a landing up top
+    for (const p of pads) cut(wall, p.x, p.y, rnd() < 0.45 ? 1 : 0);
+    cut(wall, px, py, 1);
+
+    // nearest-neighbour chain, so the layout reads as one net rather than noise
+    const left = pads.slice(1);
+    let cur = pads[0];
+    while (left.length) {
+      left.sort((a, b) => dist(a.x, a.y, cur.x, cur.y) - dist(b.x, b.y, cur.x, cur.y));
+      const nxt = left.shift();
+      trace(wall, cur.x, cur.y, nxt.x, nxt.y, rnd() < 0.22 ? 1 : 0);
+      cur = nxt;
     }
-    for (let i = 0, pads = ri(2, 4); i < pads; i++) {
-      const x = ri(0, W - 2), y = ri(0, H - 2);
-      wall[y][x] = wall[y][x + 1] = wall[y + 1][x] = wall[y + 1][x + 1] = 1;
+    // spare runs: a corridor plugged by a monster should not orphan a whole region
+    for (let i = 0; i < 3; i++) {
+      const a = pick(pads), b = pick(pads);
+      trace(wall, a.x, a.y, b.x, b.y);
     }
-    px = 4; py = H - 2;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const x = px + dx, y = py + dy;
-      if (x >= 0 && x < W && y >= 0 && y < H) wall[y][x] = 0;
-    }
-  } while (reachCount(wall, px, py) < 70 && tries < 40);
+    if (rnd() < 0.7) meander(wall, ri(1, 3), ri(1, H - 7), ri(3, 5), ri(2, 3), 2);
+    if (rnd() < 0.6) bus(wall, ri(0, 3), ri(1, 4), ri(6, H - 2), ri(3, 4), 2);
+
+    reach = reachSet(wall, px, py);
+  } while (reach.size < 46 && tries < 60);
 
   const open = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
-    if (!wall[y][x] && dist(x, y, px, py) > 2) open.push({ x, y });
+  for (const k of reach) {
+    const x = k % W, y = (k / W) | 0;
+    if (dist(x, y, px, py) > 2) open.push({ x, y });
+  }
 
   open.sort((a, b) => dist(b.x, b.y, px, py) - dist(a.x, a.y, px, py));
-  const via = open.shift();
+  const via = open.shift() || { x: px, y: Math.max(0, py - 3) };
   shuffle(open);
 
   const mons = [];
@@ -808,18 +897,67 @@ function genMap(depth) {
   return m;
 }
 
-function reachCount(wall, sx, sy) {
-  const seen = Array.from({ length: H }, () => new Array(W).fill(false));
-  const q = [[sx, sy]]; seen[sy][sx] = true; let n = 1;
+// everything actually walkable from the start, 8-way like movement itself —
+// content is only ever placed inside this set, so nothing can spawn walled off
+function reachSet(wall, sx, sy) {
+  const seen = new Set([sy * W + sx]);
+  const q = [[sx, sy]];
   while (q.length) {
     const [x, y] = q.pop();
-    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      const nx = x + dx, ny = y + dy;
-      if (nx < 0 || nx >= W || ny < 0 || ny >= H || seen[ny][nx] || wall[ny][nx]) continue;
-      seen[ny][nx] = true; n++; q.push([nx, ny]);
+    for (const [dx, dy] of DIRS8) {
+      const nx = x + dx, ny = y + dy, k = ny * W + nx;
+      if (nx < 0 || nx >= W || ny < 0 || ny >= H || seen.has(k) || wall[ny][nx]) continue;
+      if (dx && dy && (wall[y][nx] && wall[ny][x])) continue;   // no diagonal squeeze
+      seen.add(k); q.push([nx, ny]);
     }
   }
-  return n;
+  return seen;
+}
+
+// ───────────── routing primitives ─────────────
+// A board is not a cave. Copper pour is the wall and the traces are the corridors,
+// so a floor gets read the way a layout is read: pads joined by runs, a meander
+// where a length had to be matched, a bus where several signals travel together.
+const inB = (x, y) => x >= 0 && x < W && y >= 0 && y < H;
+
+function cut(wall, x, y, r = 0) {
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++)
+    if (inB(x + dx, y + dy)) wall[y + dy][x + dx] = 0;
+}
+
+// break out at 45° until aligned, then run straight — how a router leaves a pad
+function trace(wall, ax, ay, bx, by, r = 0) {
+  let x = ax, y = ay, guard = 0;
+  cut(wall, x, y, r);
+  while ((x !== bx || y !== by) && guard++ < 64) {
+    const dx = Math.sign(bx - x), dy = Math.sign(by - y);
+    if (dx && dy) { x += dx; y += dy; } else if (dx) x += dx; else y += dy;
+    cut(wall, x, y, r);
+  }
+}
+
+// serpentine delay line: the length-matching squiggle every board has
+function meander(wall, x0, y0, span, rows, pitch) {
+  let dir = 1, x = x0;
+  for (let r = 0; r < rows; r++) {
+    const y = y0 + r * pitch;
+    if (y >= H) break;
+    for (let i = 0; i < span; i++) { cut(wall, x, y); x = Math.max(0, Math.min(W - 1, x + dir)); }
+    for (let j = 0; j <= pitch && y + j < H; j++) cut(wall, x, y + j);
+    dir = -dir;
+  }
+}
+
+// a bundle of parallel runs, joined at one end like a fan-out
+function bus(wall, x0, y0, y1, lanes, gap) {
+  const lo = Math.min(y0, y1), hi = Math.max(y0, y1);
+  for (let i = 0; i < lanes; i++) {
+    const x = x0 + i * gap;
+    if (!inB(x, lo)) continue;
+    for (let y = lo; y <= hi; y++) cut(wall, x, y);
+  }
+  for (let i = 0; i < lanes; i++) cut(wall, x0 + i * gap, hi);
+  for (let x = x0; x < x0 + lanes * gap; x++) cut(wall, x, hi);
 }
 
 function revealFog(m, cx, cy, r) {
@@ -936,6 +1074,7 @@ function buildDieEdge() {
 
 function buildDungeon() {
   clearDungeon();
+  applyTier(tierOf(G.depth));      // palette follows depth, before anything is built
   const m = G.map;
 
   // substrate slab under everything
@@ -1036,44 +1175,118 @@ function makeMonster(mo) {
   const em = emissive(col, 1.8);
   let top;
 
+  // Every enemy is a part you would find on the board. The silhouette carries the
+  // rule: a can is armoured, an axial body is fragile, a diode only conducts one way.
+  const lead = (x, z, lx, lz) => {                       // tinned wire off the body
+    const l = new THREE.Mesh(BOX, M.gold);
+    l.scale.set(lx, 0.05, lz);
+    l.position.set(x, 0.09, z);
+    g.add(l);
+  };
+
   switch (mo.t.shape) {
+    // ── SOIC微chip: the ordinary process ──
     case 'chip':
-      body.scale.set(0.62, 0.3, 0.5); body.position.y = 0.28;
-      top = new THREE.Mesh(BOX, em); top.scale.set(0.34, 0.07, 0.24); top.position.y = 0.46;
-      for (let s = -1; s <= 1; s += 2) for (let p = -1; p <= 1; p++) {
+      body.scale.set(0.58, 0.24, 0.44); body.position.y = 0.22;
+      top = new THREE.Mesh(BOX, em); top.scale.set(0.3, 0.06, 0.2); top.position.y = 0.36;
+      for (let side = -1; side <= 1; side += 2) for (let p = -1; p <= 1; p++) {
         const pin = new THREE.Mesh(BOX, M.gold);
-        pin.scale.set(0.1, 0.05, 0.1);
-        pin.position.set(p * 0.2, 0.16, s * 0.3);
+        pin.scale.set(0.08, 0.04, 0.14);
+        pin.position.set(p * 0.19, 0.12, side * 0.28);
         g.add(pin);
       }
       break;
-    case 'diamond':
-      body.scale.set(0.44, 0.5, 0.44); body.position.y = 0.34; body.rotation.y = Math.PI / 4;
-      top = new THREE.Mesh(BOX, em); top.scale.set(0.2, 0.2, 0.2);
-      top.position.y = 0.62; top.rotation.y = Math.PI / 4;
-      break;
-    case 'hex': {
-      const hx = new THREE.Mesh(HEXG, M.chipBody);
-      hx.scale.set(0.62, 0.46, 0.62); hx.position.y = 0.23;
-      g.add(hx);
-      body.visible = false;
-      top = new THREE.Mesh(HEXG, em); top.scale.set(0.38, 0.1, 0.38); top.position.y = 0.5;
+
+    // ── axial resistor: thin body, colour bands, snaps under load ──
+    case 'res': {
+      const rb = new THREE.Mesh(CYL, mat({ color:0xC9B48A, roughness:0.7, metalness:0.1 }));
+      rb.rotation.z = Math.PI / 2;
+      rb.scale.set(0.19, 0.44, 0.19); rb.position.y = 0.19;
+      g.add(rb); body.visible = false;
+      const bandCols = [0x9A5528, 0x1A1A1A, col];
+      bandCols.forEach((c, i) => {
+        const bd = new THREE.Mesh(CYL, i === 2 ? em : mat({ color:c, roughness:0.6 }));
+        bd.rotation.z = Math.PI / 2;
+        bd.scale.set(0.205, 0.055, 0.205);
+        bd.position.set((i - 1) * 0.12, 0.19, 0);
+        g.add(bd);
+        if (i === 2) top = bd;
+      });
+      lead(-0.32, 0, 0.2, 0.05); lead(0.32, 0, 0.2, 0.05);
       break;
     }
-    case 'blob': {
-      const sp = new THREE.Mesh(SPH, M.chipBody);
-      sp.scale.set(0.58, 0.46, 0.58); sp.position.y = 0.26;
-      g.add(sp); body.visible = false;
-      top = new THREE.Mesh(SPH, em); top.scale.set(0.3, 0.22, 0.3); top.position.y = 0.42;
+
+    // ── electrolytic can: the armour is literally a metal sleeve ──
+    case 'cap': {
+      const can = new THREE.Mesh(CYL, mat({ color:0x2B3A46, roughness:0.35, metalness:0.75 }));
+      can.scale.set(0.46, 0.5, 0.46); can.position.y = 0.25;
+      g.add(can); body.visible = false;
+      const stripe = new THREE.Mesh(BOX, mat({ color:0xC6D3DD, roughness:0.6 }));
+      stripe.scale.set(0.13, 0.44, 0.02);
+      stripe.position.set(-0.15, 0.25, 0.235);
+      g.add(stripe);
+      for (const r of [0, Math.PI / 2]) {                // the scored vent cross on top
+        const v = new THREE.Mesh(BOX, mat({ color:0x18222B, roughness:0.5, metalness:0.6 }));
+        v.scale.set(0.42, 0.02, 0.05); v.position.y = 0.51; v.rotation.y = r;
+        g.add(v);
+      }
+      top = new THREE.Mesh(CYL, em); top.scale.set(0.3, 0.05, 0.3); top.position.y = 0.53;
       break;
     }
+
+    // ── toroid inductor: a wound core, and winding is what makes it run hot ──
+    case 'ind': {
+      const core = new THREE.Mesh(TOR, mat({ color:0x2A2A2E, roughness:0.75 }));
+      core.rotation.x = Math.PI / 2;
+      core.scale.set(1.15, 1.15, 1.15); core.position.y = 0.16;
+      g.add(core); body.visible = false;
+      for (let i = 0; i < 8; i++) {                      // copper turns over the core
+        const a2 = i / 8 * Math.PI * 2;
+        const t2 = new THREE.Mesh(BOX, M.copperD);
+        t2.scale.set(0.07, 0.19, 0.2);
+        t2.position.set(Math.cos(a2) * 0.28, 0.16, Math.sin(a2) * 0.28);
+        t2.rotation.y = -a2;
+        g.add(t2);
+      }
+      top = new THREE.Mesh(TOR, em);
+      top.rotation.x = Math.PI / 2;
+      top.scale.set(0.62, 0.62, 0.62); top.position.y = 0.3;
+      break;
+    }
+
+    // ── axial diode: glass body, cathode band, conducts one way and strikes first ──
+    case 'diode': {
+      const gb = new THREE.Mesh(CYL, mat({ color:0x14181C, roughness:0.25, metalness:0.4 }));
+      gb.rotation.z = Math.PI / 2;
+      gb.scale.set(0.2, 0.4, 0.2); gb.position.y = 0.2;
+      g.add(gb); body.visible = false;
+      const band = new THREE.Mesh(CYL, em);
+      band.rotation.z = Math.PI / 2;
+      band.scale.set(0.215, 0.09, 0.215);
+      band.position.set(0.13, 0.2, 0);
+      g.add(band); top = band;
+      lead(-0.3, 0, 0.2, 0.05); lead(0.3, 0, 0.2, 0.05);
+      break;
+    }
+
+    // ── the big QFP that runs the show ──
     case 'boss':
-      body.scale.set(0.82, 0.42, 0.82); body.position.y = 0.32;
-      top = new THREE.Mesh(BOX, em); top.scale.set(0.5, 0.1, 0.5); top.position.y = 0.56;
-      for (let i = -2; i <= 2; i++) {
+      body.scale.set(0.8, 0.34, 0.8); body.position.y = 0.24;
+      top = new THREE.Mesh(BOX, em); top.scale.set(0.46, 0.08, 0.46); top.position.y = 0.44;
+      for (let side = 0; side < 4; side++) {             // leads on all four sides
+        for (let p = -2; p <= 2; p++) {
+          const pin = new THREE.Mesh(BOX, M.gold);
+          const along = p * 0.15, out = 0.47;
+          pin.scale.set(side % 2 ? 0.16 : 0.07, 0.04, side % 2 ? 0.07 : 0.16);
+          pin.position.set(side % 2 ? (side === 1 ? out : -out) : along, 0.1,
+                           side % 2 ? along : (side === 0 ? out : -out));
+          g.add(pin);
+        }
+      }
+      for (let i = -1; i <= 1; i++) {                    // heatsink fins
         const fin = new THREE.Mesh(BOX, M.copperD);
-        fin.scale.set(0.06, 0.3, 0.7);
-        fin.position.set(i * 0.16, 0.7, 0);
+        fin.scale.set(0.07, 0.26, 0.62);
+        fin.position.set(i * 0.24, 0.55, 0);
         g.add(fin);
       }
       break;
@@ -1085,7 +1298,7 @@ function makeMonster(mo) {
   // threat ring on the floor — the primary "something lives here" signal
   const ring = new THREE.Mesh(TOR, emissive(col, 2.4));
   ring.rotation.x = Math.PI / 2;
-  ring.scale.set(1.42, 1.42, 1.42);
+  ring.scale.set(1.24, 1.24, 1.24);   // tight enough to leave the part readable
   ring.position.y = 0.04;
   g.add(ring);
 
@@ -1264,8 +1477,10 @@ function nextFloor(first) {
   if (!first) payExit();
   G.floor++; G.depth++;
   G.pending = null; G.walking = null; G.targeting = null;
+  const was = tier;
   G.map = genMap(G.depth);
   buildDungeon();
+  if (tier !== was) say(`<b class="a">${tier.name}</b> — ${tier.note}`);
   if (G.nextHeat) { addHeat(G.nextHeat); G.nextHeat = 0; }
   if (G.salvage) { applyItem(G.salvage); G.salvage = null; }
   say(`<b class="${G.map.sector.col}">${G.map.sector.name}</b> — ${G.map.sector.rule}`);
@@ -2190,6 +2405,27 @@ function showHelp() {
   $('ok').focus();
 }
 
+// eleven components taken. Until now this state existed and nothing happened.
+function showWin() {
+  phase = 'dead';
+  syncDock();
+  showOver(`
+    <h1>DIE SHRINK</h1>
+    <div class="sub">ALL COMPONENTS OWNED</div>
+    <p>기판 위의 <b>열한 개 소자</b>를 전부 장악했다.<br>
+       이 폰은 이제 당신의 것이다.</p>
+    <div class="stats">
+      <span>최종 깊이</span><span>${G.depth}</span>
+      <span>레벨</span><span>${G.lv}</span>
+      <span>처치</span><span>${G.kills}</span>
+      <span>걸은 칸</span><span>${G.tiles}</span>
+      <span>배터리 수명</span><span>${G.health}%</span>
+    </div>
+    <button id="again">다시 시작</button>`);
+  $('again').onclick = () => { hideOver(); restart(); };
+  $('again').focus();
+}
+
 function showDead() {
   phase = 'dead';
   syncDock();
@@ -2214,6 +2450,7 @@ function completeComponent() {
   payExit();                                  // the last floor is charged too
   G.cleared.push(G.comp.id);
   say(`<b class="g">${G.comp.name} 클리어</b>`);
+  if (G.cleared.length >= COMPONENTS.length) return showWin();
   showOver(`
     <h1>${G.comp.name}</h1>
     <div class="sub">COMPONENT CLEARED</div>

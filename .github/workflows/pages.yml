@@ -32,4 +32,10 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git subtree split --prefix web -b gh-pages-build
+          git checkout gh-pages-build
+          # stamp the build the page shows: date of the commit + its short sha
+          STAMP="$(git show -s --format=%cd --date=format:%Y%m%d "$GITHUB_SHA").${GITHUB_SHA:0:7}"
+          printf 'window.__BUILD = %s;\n' "'$STAMP'" > build.js
+          git add build.js
+          git commit -m "build $STAMP"
           git push -f origin gh-pages-build:gh-pages

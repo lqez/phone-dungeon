@@ -64,10 +64,17 @@ const ITEMS = [
 ];
 
 const SKILLS = [
-  { id:'tap',   name:'TAP',   heat:5,  cd:3, target:null,  desc:'다음 공격 ×1.5' },
-  { id:'surge', name:'SURGE', heat:14, cd:0, target:'dir', desc:'직선 3칸 관통' },
-  { id:'purge', name:'PURGE', heat:10, cd:0, target:null,  desc:'배터리 25% 회복' },
-  { id:'scan',  name:'SCAN',  heat:4,  cd:0, target:null,  desc:'반경 3 정찰 (회복 없음)' },
+  { id:'tap',   name:'TAP',   heat:5,  cd:3, target:null,  desc:'다음 공격 ×1.5',
+    long:'다음 한 번의 공격 피해가 1.5배가 된다. 강한 적을 치기 직전에 쓴다. 3턴 쿨다운.' },
+  { id:'surge', name:'SURGE', heat:14, cd:0, target:'dir',
+    desc:'직선 3칸 관통',
+    long:'고른 방향으로 3칸을 관통해 ATK의 1.2배 피해를 준다. 반격을 받지 않는다. 벽에 막힌다.' },
+  { id:'purge', name:'PURGE', heat:10, cd:0, target:null,
+    desc:'배터리 25% 회복',
+    long:'배터리를 최대치의 25%만큼 회복한다. 안개가 남지 않았을 때의 마지막 회복 수단.' },
+  { id:'scan',  name:'SCAN',  heat:4,  cd:0, target:null,
+    desc:'반경 3 정찰',
+    long:'반경 3칸의 안개를 걷지 않고 들여다본다. 지형과 적은 드러나지만 배터리는 회복되지 않는다.' },
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -269,6 +276,8 @@ function newGame() {
     dead:false, cause:'',
     log:[], coach:new Set(),
     map:null, targeting:null,
+    pending:null,   // planned action awaiting a confirming second tap
+    walking:null,   // in-progress path traversal
   };
 }
 
@@ -382,8 +391,13 @@ const gx2w = x => (x - (W - 1) / 2) * TILE;
 const gy2w = y => (y - (H - 1) / 2) * TILE;
 
 let tileMesh = [], fogMesh = [], wallMesh = [], monObj = [], itemObj = [], viaObj = null, playerObj = null;
-let pickables = [];
+let pickGrid = [], ghostObjs = [];
 let fogAnims = [], floaters = [];
+
+// Taps resolve against this flat invisible grid, never against tall geometry.
+// A wall or fog block is half a tile high on screen; picking its side face would
+// select a cell the player didn't visually aim at.
+const PICK_MAT = new THREE.MeshBasicMaterial({ visible: false });
 
 function clearDungeon() {
   while (dunGroup.children.length) {
@@ -392,7 +406,8 @@ function clearDungeon() {
     dunGroup.remove(c);
   }
   tileMesh = []; fogMesh = []; wallMesh = []; monObj = []; itemObj = [];
-  viaObj = null; playerObj = null; pickables = []; fogAnims = []; floaters = [];
+  viaObj = null; playerObj = null; pickGrid = []; ghostObjs = [];
+  fogAnims = []; floaters = [];
 }
 
 function buildDungeon() {
@@ -419,23 +434,31 @@ function buildDungeon() {
         wl.position.set(wx, h / 2, wz);
         wl.castShadow = true; wl.receiveShadow = true;
         wl.userData = { gx:x, gy:y };
-        dunGroup.add(wl); wallMesh[y][x] = wl; pickables.push(wl);
+        dunGroup.add(wl); wallMesh[y][x] = wl;
       } else {
         const fl = new THREE.Mesh(BOX, (x + y) % 2 ? M.floor : M.floorAlt);
         fl.scale.set(0.92, 0.14, 0.92);
         fl.position.set(wx, -0.07, wz);
         fl.receiveShadow = true;
         fl.userData = { gx:x, gy:y };
-        dunGroup.add(fl); tileMesh[y][x] = fl; pickables.push(fl);
+        dunGroup.add(fl); tileMesh[y][x] = fl;
       }
+
+      const pk = new THREE.Mesh(BOX, PICK_MAT);
+      pk.scale.set(1, 0.02, 1);
+      pk.position.set(wx, 0.01, wz);
+      pk.userData = { gx:x, gy:y };
+      dunGroup.add(pk); pickGrid.push(pk);
 
       // fog block sits above the tile and sinks away when lit
       const fg = new THREE.Mesh(BOX, M.fog);
       fg.scale.set(0.97, FOG_H, 0.97);
       fg.position.set(wx, FOG_H / 2, wz);
-      fg.castShadow = true; fg.receiveShadow = true;
+      // no shadows on fog: the blocks tile edge-to-edge and would shade each other
+      // into a uniform black mass, destroying the "lid over the board" read
+      fg.castShadow = false; fg.receiveShadow = false;
       fg.userData = { gx:x, gy:y };
-      dunGroup.add(fg); fogMesh[y][x] = fg; pickables.push(fg);
+      dunGroup.add(fg); fogMesh[y][x] = fg;
       fg.visible = m.fog[y][x] !== 0;
       if (m.fog[y][x] === 2) { fg.material = M.fog.clone(); fg.material.transparent = true; fg.material.opacity = 0.35; }
     }
@@ -547,8 +570,6 @@ function makeMonster(mo) {
   g.position.set(gx2w(mo.x), 0, gy2w(mo.y));
   g.userData = { gx:mo.x, gy:mo.y, mo, em, ring, spr, bar, top };
   dunGroup.add(g);
-  pickables.push(...g.children.filter(c => c.isMesh));
-  g.children.forEach(c => { if (c.isMesh) c.userData = { gx:mo.x, gy:mo.y }; });
   return g;
 }
 
@@ -576,9 +597,7 @@ function makeItem(it) {
   g.add(body, ring);
   g.position.set(gx2w(it.x), 0, gy2w(it.y));
   g.userData = { gx:it.x, gy:it.y, it, body };
-  g.children.forEach(c => c.userData = { gx:it.x, gy:it.y });
   dunGroup.add(g);
-  pickables.push(...g.children);
   return g;
 }
 
@@ -645,6 +664,7 @@ function nextFloor(first) {
                 : `VIA 통과 — 배터리 열화 <b class="a">HEALTH −${loss}%</b>`);
   }
   G.floor++; G.depth++;
+  G.pending = null; G.walking = null; G.targeting = null;
   G.map = genMap(G.depth);
   buildDungeon();
   sync();
@@ -792,17 +812,82 @@ function takeHit(mo, tag) {
   }
 }
 
-function fleeCheck(nx, ny) {
+// NOTE: there is deliberately no "attack of opportunity". Monsters are static and
+// only ever strike back when the player explicitly attacks them. Walking past a
+// monster is free — that is what makes "leave the dangerous one, go clear fog"
+// a real strategy, and it is how Desktop Dungeons works.
+
+// 8-way A* over LIT tiles only: the player cannot route through fog they have not
+// seen. Item and VIA tiles are avoided unless they ARE the destination, because
+// stepping on one fires it immediately (§6.5).
+const DIRS8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+function findPath(sx, sy, tx, ty) {
   const m = G.map;
-  const inC = m.mons.some(o => !o.dead && o.halt === 0 && dist(o.x, o.y, m.px, m.py) <= 1);
-  const outC = m.mons.some(o => !o.dead && o.halt === 0 && dist(o.x, o.y, nx, ny) <= 1);
-  if (!inC || outC) return false;
-  for (const mo of m.mons) {
-    if (mo.dead || mo.halt > 0 || dist(mo.x, mo.y, m.px, m.py) > 1) continue;
-    takeHit(mo, '도주');
-    if (G.dead) return true;
+  const goal = ty * W + tx;
+
+  const passable = (x, y, isGoal) => {
+    if (x < 0 || x >= W || y < 0 || y >= H) return false;
+    if (m.wall[y][x]) return false;
+    if (m.fog[y][x] === 1 && !isGoal) return false;   // fog is only ever a final step
+    if (monAt(x, y) && !isGoal) return false;
+    if (!isGoal) {
+      if (m.items.some(i => !i.taken && i.x === x && i.y === y)) return false;
+      if (m.via.x === x && m.via.y === y) return false;
+    }
+    return true;
+  };
+  if (!passable(tx, ty, true)) return null;
+
+  const gS = new Map([[sy * W + sx, 0]]);
+  const came = new Map();
+  const open = [{ x:sx, y:sy, f:0 }];
+  const closed = new Set();
+  const h = (x, y) => Math.max(Math.abs(x - tx), Math.abs(y - ty));
+
+  while (open.length) {
+    open.sort((a, b) => a.f - b.f);
+    const cur = open.shift();
+    const ck = cur.y * W + cur.x;
+    if (closed.has(ck)) continue;
+    closed.add(ck);
+
+    if (ck === goal) {
+      const path = [];
+      let k = ck;
+      while (came.has(k)) { path.push({ x: k % W, y: (k / W) | 0 }); k = came.get(k); }
+      return path.reverse();
+    }
+
+    for (const [dx, dy] of DIRS8) {
+      const nx = cur.x + dx, ny = cur.y + dy, nk = ny * W + nx;
+      if (closed.has(nk)) continue;
+      if (!passable(nx, ny, nk === goal)) continue;
+      // no slipping diagonally between two walls
+      if (dx && dy && (m.wall[cur.y]?.[nx] || m.wall[ny]?.[cur.x])) continue;
+      const ng = gS.get(ck) + (dx && dy ? 1.414 : 1);
+      if (ng < (gS.get(nk) ?? Infinity)) {
+        gS.set(nk, ng); came.set(nk, ck);
+        open.push({ x:nx, y:ny, f: ng + h(nx, ny) });
+      }
+    }
   }
-  return false;
+  return null;
+}
+
+// closest walkable tile next to a target, measured by actual path length
+function approachTile(tx, ty) {
+  const m = G.map;
+  let best = null, bestLen = Infinity;
+  for (const [dx, dy] of DIRS8) {
+    const x = tx + dx, y = ty + dy;
+    if (x < 0 || x >= W || y < 0 || y >= H) continue;
+    if (m.wall[y][x] || m.fog[y][x] === 1 || monAt(x, y)) continue;
+    if (x === m.px && y === m.py) return { x, y, path: [] };
+    const p = findPath(m.px, m.py, x, y);
+    if (p && p.length < bestLen) { best = { x, y, path: p }; bestLen = p.length; }
+  }
+  return best;
 }
 
 // ───────────── skills ─────────────
@@ -888,6 +973,52 @@ function floatText(gx, gy, text, color) {
   floaters.push({ sp, t:0 });
 }
 
+// ── ghost preview for a planned action ──
+
+function clearGhost() {
+  for (const o of ghostObjs) { dunGroup.remove(o); o.material?.dispose?.(); }
+  ghostObjs = [];
+}
+
+function ghostMark(x, y, color, size, h) {
+  const mk = new THREE.Mesh(BOX, emissive(color, 2.2));
+  mk.material.transparent = true;
+  mk.material.opacity = 0.85;
+  mk.scale.set(size, 0.05, size);
+  mk.position.set(gx2w(x), h ?? 0.1, gy2w(y));
+  dunGroup.add(mk); ghostObjs.push(mk);
+  return mk;
+}
+
+function drawGhost() {
+  clearGhost();
+  const p = G.pending;
+  if (!p) return;
+  const atk = p.kind === 'attack';
+  // stepping stones along the route
+  p.path.forEach((s, i) => {
+    const last = i === p.path.length - 1;
+    ghostMark(s.x, s.y, 0x4DE0D0, last && !atk ? 0.5 : 0.26);
+  });
+  // destination ring — red when it ends in a fight
+  const ring = new THREE.Mesh(TOR, emissive(atk ? 0xFF4D5E : 0x4DE0D0, 3.0));
+  ring.rotation.x = Math.PI / 2;
+  ring.scale.set(1.5, 1.5, 1.5);
+  ring.position.set(gx2w(p.x), 0.12, gy2w(p.y));
+  ring.userData.pulse = true;
+  dunGroup.add(ring); ghostObjs.push(ring);
+}
+
+function drawSurgeGhost(dx, dy) {
+  clearGhost();
+  const m = G.map;
+  for (let i = 1; i <= 3; i++) {
+    const x = m.px + dx * i, y = m.py + dy * i;
+    if (x < 0 || x >= W || y < 0 || y >= H || m.wall[y][x]) break;
+    ghostMark(x, y, 0xFFB454, 0.7, 0.14);
+  }
+}
+
 function boltAt(x, y) {
   const b = new THREE.Mesh(BOX, emissive(0x9FF0E6, 2.2));
   b.scale.set(0.5, 0.5, 0.5);
@@ -943,11 +1074,8 @@ function pickTile(ev) {
   ptr.x = (ev.clientX / innerWidth) * 2 - 1;
   ptr.y = -(ev.clientY / innerHeight) * 2 + 1;
   ray.setFromCamera(ptr, cam);
-  const hits = ray.intersectObjects(pickables, false);
-  for (const h of hits) {
-    const u = h.object.userData;
-    if (u && u.gx !== undefined) return { x:u.gx, y:u.gy };
-  }
+  const hits = ray.intersectObjects(pickGrid, false);
+  if (hits.length) { const u = hits[0].object.userData; return { x:u.gx, y:u.gy }; }
   return null;
 }
 
@@ -966,21 +1094,15 @@ canvas.addEventListener('pointerdown', ev => {
   if (phase === 'board') { const g = pickComponent(ev); if (g) selectComponent(g); return; }
   if (phase !== 'dungeon' || G.dead) return;
   const t = pickTile(ev);
-  press = { t, x:ev.clientX, y:ev.clientY, long:false };
-  clearTimeout(longTimer);
-  longTimer = setTimeout(() => {
-    if (!press || !press.t) return;
-    const mo = monAt(press.t.x, press.t.y);
-    if (mo && G.map.fog[press.t.y][press.t.x] !== 1) { press.long = true; showInspect(mo); }
-  }, 300);
+  press = { t, x:ev.clientX, y:ev.clientY };
 });
 
+// hover only previews when nothing is planned — a pending plan owns the inspector
 canvas.addEventListener('pointermove', ev => {
-  if (phase === 'dungeon' && !press) {
-    const t = pickTile(ev);
-    const mo = t && G.map.fog[t.y][t.x] !== 1 ? monAt(t.x, t.y) : null;
-    if (mo) showInspect(mo); else hideInspect();
-  }
+  if (phase !== 'dungeon' || press || !G || G.pending || G.walking || G.dead) return;
+  const t = pickTile(ev);
+  const mo = t && G.map.fog[t.y][t.x] !== 1 ? monAt(t.x, t.y) : null;
+  if (mo) showInspect(mo); else hideInspect();
 });
 
 addEventListener('pointerup', ev => {
@@ -988,7 +1110,6 @@ addEventListener('pointerup', ev => {
   if (!press) return;
   const p = press; press = null;
   if (phase !== 'dungeon' || G.dead) return;
-  if (p.long) { hideInspect(); return; }
   if (Math.abs(ev.clientX - p.x) > 14 || Math.abs(ev.clientY - p.y) > 14) return;
   if (p.t) tapTile(p.t.x, p.t.y);
 });
@@ -997,30 +1118,125 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 
 const monAt = (x, y) => G.map.mons.find(m => !m.dead && m.x === x && m.y === y);
 
+// ── two-step commit: first tap plans and shows a ghost, second tap executes ──
+
+function clearPending() {
+  G.pending = null;
+  clearGhost();
+  hideInspect();
+}
+
 function tapTile(x, y) {
   const m = G.map;
+  if (G.walking) return;                      // ignore input mid-traversal
+
+  // directional skill targeting runs through the same confirm flow
   if (G.targeting) {
     const dx = Math.sign(x - m.px), dy = Math.sign(y - m.py);
     const straight = (dx === 0) !== (dy === 0);
-    const s = SKILLS.find(k => k.id === G.targeting.skill);
-    G.targeting = null;
-    if (straight && dist(x, y, m.px, m.py) <= 3) useSkill(s, [dx, dy]);
-    else say('대상 취소');
-    sync(); return;
+    if (!straight || dist(x, y, m.px, m.py) > 3) {
+      G.targeting = null; clearGhost(); say('대상 취소'); sync(); return;
+    }
+    if (G.targeting.dir && G.targeting.dir[0] === dx && G.targeting.dir[1] === dy) {
+      const s = SKILLS.find(k => k.id === G.targeting.skill);
+      G.targeting = null; clearGhost();
+      useSkill(s, [dx, dy]); sync(); return;
+    }
+    G.targeting.dir = [dx, dy];
+    drawSurgeGhost(dx, dy);
+    say('한 번 더 탭하면 <b class="c">발동</b>');
+    return;
   }
 
-  if (x === m.px && y === m.py) { openRadial(); return; }
+  if (x === m.px && y === m.py) { clearPending(); openRadial(); return; }
 
-  const d = dist(x, y, m.px, m.py);
-  if (d !== 1) { if (d > 1) say('인접한 칸만 선택할 수 있다'); return; }
-  if (m.wall[y][x]) { say('구리 벽 — 지나갈 수 없다'); return; }
+  // second tap on the same target = confirm
+  if (G.pending && G.pending.x === x && G.pending.y === y) { commitPending(); return; }
 
-  const mo = monAt(x, y);
-  if (mo) { attack(mo); sync(); return; }
-  if (fleeCheck(x, y)) { sync(); return; }
-  moveTo(x, y);
+  planTo(x, y);
+}
+
+function planTo(x, y) {
+  const m = G.map;
+  clearGhost();
+  const lit = m.fog[y][x] !== 1;
+
+  if (lit && m.wall[y][x]) { G.pending = null; say('구리 벽 — 지나갈 수 없다'); return; }
+
+  const mo = lit ? monAt(x, y) : null;
+  if (mo) {
+    const app = dist(x, y, m.px, m.py) === 1
+      ? { x:m.px, y:m.py, path: [] }
+      : approachTile(x, y);
+    if (!app) { G.pending = null; say('접근할 수 없다'); return; }
+    G.pending = { kind:'attack', x, y, mon:mo, path:app.path };
+    showInspect(mo);
+    say(app.path.length
+      ? `${app.path.length}칸 이동 후 <b class="r">교전</b> — 한 번 더 탭하면 실행`
+      : '한 번 더 탭하면 <b class="r">교전</b>');
+  } else {
+    const path = findPath(m.px, m.py, x, y);
+    if (!path || !path.length) {
+      G.pending = null;
+      // distinguish "no route" from "you haven't seen a route yet"
+      say(m.fog[y][x] === 1
+        ? '아직 안개 너머라 <b class="a">길을 모른다</b> — 안개를 먼저 걷어라'
+        : '경로가 막혀 있다');
+      return;
+    }
+    G.pending = { kind:'move', x, y, path };
+    hideInspect();
+    const it = m.items.find(i => !i.taken && i.x === x && i.y === y);
+    say(it ? `${path.length}칸 이동 — <b class="a">${it.t.name}</b>을 밟는다. 한 번 더 탭`
+           : (m.via.x === x && m.via.y === y)
+             ? `${path.length}칸 이동 — <b class="a">VIA로 하강</b>한다. 한 번 더 탭`
+             : `${path.length}칸 이동 — 한 번 더 탭하면 실행`);
+  }
+  drawGhost();
+  coach('confirm');
+}
+
+function commitPending() {
+  const p = G.pending;
+  if (!p) return;
+  clearGhost();
+  G.pending = null;
+  hideInspect();
+  if (p.path.length) {
+    G.walking = { path: p.path, i: 0, t: 0, then: p.kind === 'attack' ? p.mon : null };
+  } else if (p.kind === 'attack') {
+    attack(p.mon); sync();
+  }
   coach('move');
+}
+
+// advance one tile per tick; stop early if something new shows up
+function stepWalk(dt) {
+  const wk = G.walking;
+  if (!wk) return;
+  wk.t += dt;
+  if (wk.t < 0.1) return;
+  wk.t = 0;
+
+  const mapRef = G.map;
+  const before = mapRef.mons.filter(o => !o.dead && mapRef.fog[o.y][o.x] !== 1).length;
+  const s = wk.path[wk.i++];
+  moveTo(s.x, s.y);
   sync();
+
+  if (G.dead) { G.walking = null; return; }
+  // moveTo can swap the map out (VIA / floor change) — abandon the stale path
+  if (G.map !== mapRef) { G.walking = null; return; }
+
+  const after = G.map.mons.filter(o => !o.dead && G.map.fog[o.y][o.x] !== 1).length;
+  if (wk.i >= wk.path.length) {
+    const mon = wk.then;
+    G.walking = null;
+    if (mon && !mon.dead) { attack(mon); sync(); }
+  } else if (after > before) {
+    G.walking = null;
+    say('새로운 적을 발견해 <b class="a">멈췄다</b>');
+  }
 }
 
 addEventListener('keydown', e => {
@@ -1037,6 +1253,7 @@ addEventListener('keydown', e => {
 
 const radEl = document.getElementById('radial');
 const radDesc = document.getElementById('radialDesc');
+let radSel = null;
 
 function openRadial() {
   coachEl.classList.remove('on');
@@ -1058,6 +1275,7 @@ function openRadial() {
   hub.onclick = closeRadial;
   radEl.appendChild(hub);
 
+  radSel = null;
   SKILLS.forEach((s, i) => {
     const a = -Math.PI / 2 + i * (Math.PI * 2 / SKILLS.length);
     const el = document.createElement('div');
@@ -1066,27 +1284,47 @@ function openRadial() {
     el.style.left = (sx + Math.cos(a) * R) + 'px';
     el.style.top = (sy + Math.sin(a) * R) + 'px';
     el.style.transitionDelay = (i * 26) + 'ms';
-    el.innerHTML = `<span>${s.name}</span><span class="cost">${bad || '열 +' + heatCost(s.heat)}</span>`;
-    el.onpointerenter = () => { radDesc.textContent = s.desc; el.classList.add('hot'); };
-    el.onpointerleave = () => { el.classList.remove('hot'); };
-    el.onclick = e => { e.stopPropagation(); chooseSkill(s); };
+    // name / one-line effect / cost — readable without hovering, for touch
+    el.innerHTML = `<span class="nm">${s.name}</span><span class="ef">${s.desc}</span>` +
+                   `<span class="cost">${bad || '열 +' + heatCost(s.heat)}</span>`;
+    el.onpointerenter = () => { if (!radSel) showSkillDetail(s); el.classList.add('hot'); };
+    el.onpointerleave = () => { if (radSel !== s.id) el.classList.remove('hot'); };
+    el.onclick = e => { e.stopPropagation(); pickSkill(s, el); };
     radEl.appendChild(el);
   });
 
-  radDesc.textContent = '스킬을 선택하라';
+  radDesc.innerHTML = '<span class="hint">스킬을 탭하면 설명이 나온다</span>';
   radEl.classList.add('on');
 }
 
-function closeRadial() { radEl.classList.remove('on'); }
+function closeRadial() { radEl.classList.remove('on'); radSel = null; }
 radEl.onclick = closeRadial;
 
-function chooseSkill(s) {
-  closeRadial();
+function showSkillDetail(s) {
   const bad = skillBlock(s);
+  radDesc.innerHTML =
+    `<span class="ttl">${s.name}</span> <span class="cst">열 +${heatCost(s.heat)}` +
+    (heatState() === 'warm' ? ' <b>(과열 1.5배)</b>' : '') + `</span><br>` +
+    `<span class="body">${s.long}</span>` +
+    (bad ? `<br><span class="no">사용 불가 — ${bad}</span>`
+         : `<br><span class="go">한 번 더 탭하면 ${s.target === 'dir' ? '방향 선택' : '발동'}</span>`);
+}
+
+// first tap explains, second tap commits — same contract as moving and attacking
+function pickSkill(s, el) {
+  if (radSel !== s.id) {
+    radSel = s.id;
+    radEl.querySelectorAll('.slot').forEach(e => e.classList.remove('hot'));
+    el.classList.add('hot');
+    showSkillDetail(s);
+    return;
+  }
+  const bad = skillBlock(s);
+  closeRadial();
   if (bad) { say(`${s.name} 사용 불가 — ${bad}`); return; }
   if (s.target === 'dir') {
-    G.targeting = { skill: s.id };
-    say('<b class="c">SURGE</b> — 방향(직선 3칸)을 탭하라');
+    G.targeting = { skill: s.id, dir: null };
+    say('<b class="c">SURGE</b> — 방향을 탭해 조준하라');
     sync(); return;
   }
   useSkill(s);
@@ -1120,9 +1358,10 @@ function hideInspect() { insEl.className = ''; }
 
 const coachEl = document.getElementById('coach');
 const COACH = {
-  move: '인접한 칸을 <b>탭</b>하면 이동한다',
+  confirm: '칸을 <b>한 번 탭</b>하면 경로가 보이고, <b>한 번 더 탭</b>하면 실행된다',
+  move: '멀리 있는 칸도 탭하면 <b>자동으로 길을 찾아</b> 간다',
   fog:  '어두운 블록이 <b>안개</b>다. 걷을 때마다 배터리가 회복되지만 — 안개는 <b>유한하다</b>',
-  mon:  '붉게 빛나면 나보다 강한 적이다. <b>길게 눌러</b> 교환 결과를 먼저 확인하라',
+  mon:  '붉게 빛나면 나보다 강한 적이다. 적을 탭하면 <b>교환 결과</b>가 위에 뜬다',
   skill:'자신(시안 큐브)을 <b>탭</b>하면 스킬 휠이 열린다',
   via:  '구리 링이 <b>VIA</b>다. 밟으면 아래층 — 배터리 최대치는 영구히 줄어든다',
 };
@@ -1369,6 +1608,13 @@ function frame(now) {
   const t = now / 1000;
 
   bootStep(dt);
+  if (phase === 'dungeon' && G && !G.dead) stepWalk(dt);
+
+  // ghost pulse
+  for (const o of ghostObjs) {
+    if (o.userData.pulse) o.material.emissiveIntensity = 2.2 + Math.sin(t * 6) * 1.2;
+    else o.material.opacity = 0.55 + Math.sin(t * 5) * 0.3;
+  }
 
   // camera tween
   if (tween) {

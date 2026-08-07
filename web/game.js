@@ -838,6 +838,7 @@ function newGame() {
     killCool:0,     // VAPOR PATH: heat shed on every kill
     carry:[],       // monsters that followed you down from a MIGRATION floor
     nextHeat:0,     // heat a THERMAL floor charges you on arrival
+    skills:[],      // circuits ripped from beaten components — the only skills you have
     buff:0, cd:{}, watchdog:false,
     dead:false, cause:'',
     log:[], coach:new Set(),
@@ -2474,7 +2475,8 @@ addEventListener('keydown', e => {
   if (k) { e.preventDefault(); tapTile(G.map.px + k[0], G.map.py + k[1]); }
   // 1..4 fire the dock slots directly, same as tapping them
   const n = '1234'.indexOf(e.key);
-  if (n >= 0 && SKILLS[n]) { e.preventDefault(); fireSkill(SKILLS[n]); }
+  const owned = ownedSkills();
+  if (n >= 0 && owned[n]) { e.preventDefault(); fireSkill(owned[n]); }
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -2487,10 +2489,14 @@ addEventListener('keydown', e => {
 const dockEl = document.getElementById('skills');
 const slotEls = new Map();
 
+let dockKey = null;
+function ownedSkills() { return G ? SKILLS.filter(s => G.skills.includes(s.id)) : []; }
 function buildDock() {
+  const owned = ownedSkills();
+  dockKey = owned.map(s => s.id).join();
   dockEl.innerHTML = '';
   slotEls.clear();
-  for (const s of SKILLS) {
+  for (const s of owned) {
     const el = document.createElement('div');
     el.className = 'sk';
     el.innerHTML = `<span class="nm">${s.name}</span>` +
@@ -2515,10 +2521,11 @@ function buildDock() {
 }
 
 function syncDock() {
-  const live = phase === 'dungeon' && G && !G.dead;
+  if (G && dockKey !== G.skills.join()) buildDock();
+  const live = phase === 'dungeon' && G && !G.dead && G.skills.length > 0;
   dockEl.classList.toggle('on', !!live);
   if (!live) return;
-  for (const s of SKILLS) {
+  for (const s of ownedSkills()) {
     const el = slotEls.get(s.id);
     const bad = skillBlock(s);
     const cd = G.cd[s.id] || 0;
@@ -2743,7 +2750,7 @@ function showHelp() {
       <div class="lg"><span class="sw" style="--c:#0B1017"></span><span><b>안개 블록</b> — 걷으면 배터리 +레벨, 열 −2. 이 던전의 유일한 회복원이고 <b>유한하다</b></span></div>
       <div class="lg"><span class="sw tall" style="--c:#C87137"></span><span><b>구리 벽</b> — 높이 솟은 것. 지나갈 수 없다</span></div>
       <div class="lg"><span class="sw" style="--c:#FF4D5E"></span><span><b>몬스터</b> — 붉으면 나보다 높은 레벨. 숫자가 레벨이다. 움직이지 않는다</span></div>
-      <div class="lg"><span class="sw" style="--c:#4DE0D0"></span><span><b>나</b> — 시안 큐브. 스킬은 화면 <b>아래 슬롯</b>에서 바로 쓴다</span></div>
+      <div class="lg"><span class="sw" style="--c:#4DE0D0"></span><span><b>나</b> — 시안 큐브. 스킬은 처음엔 없다 — <b>소자를 격파할 때마다 하나씩</b> 뜯어와 아래 슬롯에 장착된다</span></div>
       <div class="lg"><span class="sw ring" style="--c:#C87137"></span><span><b>VIA</b> — 아래층으로 내려가는 구멍. <b>전멸하고 내려가면 완충·손실 0</b>, 적을 남기면 남긴 수만큼 수명이 깎인다</span></div>
       <div class="lg"><span class="sw" style="--c:#FFB454"></span><span><b>구역 규칙</b> — 층마다 다르다. HUD 맨 아랫줄에 그 층에서 <b>다 잡을 값어치</b>가 적혀 있다</span></div>
       <div class="lg"><span class="sw" style="--c:#6BD98A"></span><span><b>강화 모듈</b> — 밟으면 <b>공·방·체</b> 셋 중 하나를 고른다. 무엇을 키울지가 이 판의 빌드다</span></div>
@@ -2801,23 +2808,47 @@ function completeComponent() {
   G.cleared.push(G.comp.id);
   say(`<b class="g">${G.comp.name} 클리어</b>`);
   if (G.cleared.length >= COMPONENTS.length) return showWin();
+  // skills are loot: each beaten component yields one circuit of your choice
+  const offers = SKILLS.filter(s => !G.skills.includes(s.id));
   showOver(`
     <h1>${G.comp.name}</h1>
     <div class="sub">COMPONENT CLEARED</div>
-    <p>이 소자를 장악했다. 기판으로 돌아가 다음 소자를 고른다.</p>
+    ${offers.length
+      ? `<p>전리품 — 이 소자의 <b class="c">회로 하나</b>를 뜯어간다</p>
+         <div class="picks">${offers.map((s, i) => `
+           <button class="pick c" data-i="${i}">
+             <span class="ax">칩</span>
+             <span class="bd"><span class="pn">${s.name}</span>
+             <span class="pd">${s.desc} · 열 +${s.heat}${s.cd ? ` · 쿨 ${s.cd}턴` : ''}</span>
+             <span class="pnote">${s.long}</span></span>
+           </button>`).join('')}</div>`
+      : '<p>이 소자를 장악했다. 기판으로 돌아가 다음 소자를 고른다.</p>'}
     <div class="stats">
       <span>배터리</span><span>${G.bat}/${maxBat()}</span>
       <span>레벨</span><span>${G.lv}</span>
       <span>배터리 수명</span><span>${G.health}%</span>
     </div>
-    <button id="up">기판으로</button>`);
+    ${offers.length ? '' : '<button id="up">기판으로</button>'}`);
   // a salvaged module opens its own card, so it has to wait for this one to close
-  $('up').onclick = () => {
+  const done = () => {
     hideOver();
     toBoard();
     if (G.salvage) { const s = G.salvage; G.salvage = null; applyItem(s); }
   };
-  $('up').focus();
+  if (offers.length) {
+    cardEl.querySelectorAll('.pick').forEach(el => {
+      el.onclick = () => {
+        const s = offers[+el.dataset.i];
+        G.skills.push(s.id);
+        say(`<b class="c">${s.name}</b> 회로 확보 — 하단 슬롯에 장착됐다`);
+        done();
+      };
+    });
+    cardEl.querySelector('.pick')?.focus();
+  } else {
+    $('up').onclick = done;
+    $('up').focus();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════

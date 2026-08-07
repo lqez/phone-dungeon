@@ -391,13 +391,32 @@ const gx2w = x => (x - (W - 1) / 2) * TILE;
 const gy2w = y => (y - (H - 1) / 2) * TILE;
 
 let tileMesh = [], fogMesh = [], wallMesh = [], monObj = [], itemObj = [], viaObj = null, playerObj = null;
-let pickGrid = [], ghostObjs = [];
+let pickGrid = [], pickMesh = [], ghostObjs = [];
 let fogAnims = [], floaters = [];
 
-// Taps resolve against this flat invisible grid, never against tall geometry.
-// A wall or fog block is half a tile high on screen; picking its side face would
-// select a cell the player didn't visually aim at.
+// Taps resolve against an invisible column per cell, never against the real meshes.
+// The column's top face rides on whatever that cell currently shows — bare floor,
+// fog lid, copper wall, a token — because the camera is tilted: the top of a block
+// draws well above its own footprint, so a grid pinned at floor level answers a tap
+// on a fog lid or a wall with the cell *behind* it, always up-screen. Matching the
+// silhouette keeps "what the finger covered" and "what got selected" the same cell.
 const PICK_MAT = new THREE.MeshBasicMaterial({ visible: false });
+const PLAYER_PICK_H = 0.95;   // the shell tops out at 0.94
+const MON_PICK_H = 0.75;      // body top — the level badge above it lands on this face
+
+function setPickTop(pk, top) {
+  const h = Math.max(0.02, top);
+  pk.scale.y = h;
+  pk.position.y = h / 2;
+}
+
+// an invisible column standing on a cell, tagged so a hit resolves back to a token
+function makePick(w, h) {
+  const pk = new THREE.Mesh(BOX, PICK_MAT);
+  pk.scale.set(w, h, w);
+  pk.position.y = h / 2;
+  return pk;
+}
 
 function clearDungeon() {
   while (dunGroup.children.length) {
@@ -406,7 +425,7 @@ function clearDungeon() {
     dunGroup.remove(c);
   }
   tileMesh = []; fogMesh = []; wallMesh = []; monObj = []; itemObj = [];
-  viaObj = null; playerObj = null; pickGrid = []; ghostObjs = [];
+  viaObj = null; playerObj = null; pickGrid = []; pickMesh = []; ghostObjs = [];
   fogAnims = []; floaters = [];
 }
 
@@ -422,7 +441,7 @@ function buildDungeon() {
   dunGroup.add(slab);
 
   for (let y = 0; y < H; y++) {
-    tileMesh[y] = []; fogMesh[y] = []; wallMesh[y] = [];
+    tileMesh[y] = []; fogMesh[y] = []; wallMesh[y] = []; pickMesh[y] = [];
     for (let x = 0; x < W; x++) {
       const wx = gx2w(x), wz = gy2w(y);
 
@@ -444,11 +463,10 @@ function buildDungeon() {
         dunGroup.add(fl); tileMesh[y][x] = fl;
       }
 
-      const pk = new THREE.Mesh(BOX, PICK_MAT);
-      pk.scale.set(1, 0.02, 1);
-      pk.position.set(wx, 0.01, wz);
+      const pk = makePick(1, 0.02);
+      pk.position.x = wx; pk.position.z = wz;
       pk.userData = { gx:x, gy:y };
-      dunGroup.add(pk); pickGrid.push(pk);
+      dunGroup.add(pk); pickGrid.push(pk); pickMesh[y][x] = pk;
 
       // fog block sits above the tile and sinks away when lit
       const fg = new THREE.Mesh(BOX, M.fog);
@@ -488,8 +506,12 @@ function buildDungeon() {
     color:0x4DE0D0, emissive:0x4DE0D0, emissiveIntensity:0.5,
     transparent:true, opacity:0.24, roughness:0.2 }));
   shell.scale.set(0.78, 0.78, 0.78);
-  playerObj.add(core, shell);
-  playerObj.userData = { core, shell };
+  // the token floats at y=0.55 and bobs; its own column keeps a tap on it from
+  // sliding onto the tile the token is drawn in front of
+  const pkP = makePick(0.86, PLAYER_PICK_H);
+  pkP.position.y = PLAYER_PICK_H / 2 - 0.55;
+  playerObj.add(core, shell, pkP);
+  playerObj.userData = { core, shell, pick: pkP };
   dunGroup.add(playerObj);
 
   syncMeshes();
@@ -567,8 +589,13 @@ function makeMonster(mo) {
   bar.position.y = 0.8;
   g.add(bar);
 
+  // column matching the chip's silhouette, so a tap on the body or the level
+  // badge above it hits the monster's own cell instead of the row behind
+  const pk = makePick(0.9, MON_PICK_H);
+  g.add(pk);
+
   g.position.set(gx2w(mo.x), 0, gy2w(mo.y));
-  g.userData = { gx:mo.x, gy:mo.y, mo, em, ring, spr, bar, top };
+  g.userData = { gx:mo.x, gy:mo.y, mo, em, ring, spr, bar, top, pick: pk };
   dunGroup.add(g);
   return g;
 }
@@ -616,6 +643,19 @@ function syncMeshes() {
     // an unlit tile shows nothing but the fog lid — no peeking at walls behind it
     if (wallMesh[y][x]) wallMesh[y][x].visible = f !== 1;
     if (tileMesh[y][x]) tileMesh[y][x].visible = f !== 1;
+
+    // raise the pick column to whatever surface this cell now presents
+    if (pickMesh[y][x]) {
+      const wl = wallMesh[y][x];
+      let top = 0.02;                                        // bare floor
+      if (f === 1) top = FOG_H;                              // the lid hides everything
+      else {
+        if (f === 2) top = FOG_H * 0.45;                     // dimmed lid, half sunk
+        if (wl) top = Math.max(top, wl.scale.y);
+      }
+      setPickTop(pickMesh[y][x], top);
+    }
+
     if (!fg) continue;
     if (f === 0 && fg.visible && !fg.userData.sinking) {
       fg.userData.sinking = true;
@@ -1044,9 +1084,16 @@ function applyCamera() {
 }
 
 let viewSpan = 15;
+let sizedW = 0, sizedH = 0, sizedDpr = 0;
 function resize() {
-  const w = innerWidth, h = innerHeight;
-  renderer.setSize(w, h);
+  const w = innerWidth, h = innerHeight, dpr = Math.min(2, devicePixelRatio);
+  // reallocating the drawing buffer flickers, and visualViewport fires on every
+  // URL-bar frame — only resize when the box actually changed
+  if (w !== sizedW || h !== sizedH || dpr !== sizedDpr) {
+    sizedW = w; sizedH = h; sizedDpr = dpr;
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(w, h);
+  }
   const aspect = w / h;
   // fit the play area, leaving vertical room for the HUD band and the log band
   const inDun = phase === 'dungeon' || phase === 'zoom';
@@ -1070,19 +1117,38 @@ const ray = new THREE.Raycaster();
 const ptr = new THREE.Vector2();
 let press = null, longTimer = null;
 
-function pickTile(ev) {
-  ptr.x = (ev.clientX / innerWidth) * 2 - 1;
-  ptr.y = -(ev.clientY / innerHeight) * 2 + 1;
+// Aim at the canvas box, not at the window. On a phone the visual viewport and the
+// laid-out canvas drift apart while the URL bar slides, and every pixel of drift is
+// a pixel the tap lands off — vertically, since that is the axis that moves.
+function aim(ev) {
+  const r = canvas.getBoundingClientRect();
+  ptr.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
+  ptr.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
   ray.setFromCamera(ptr, cam);
-  const hits = ray.intersectObjects(pickGrid, false);
-  if (hits.length) { const u = hits[0].object.userData; return { x:u.gx, y:u.gy }; }
-  return null;
+}
+
+// nearest column wins, exactly as the nearest surface wins on screen
+const pickTargets = () => {
+  const t = pickGrid.slice();
+  if (playerObj) t.push(playerObj.userData.pick);
+  for (const g of monObj) if (g.visible) t.push(g.userData.pick);
+  return t;
+};
+
+function pickTile(ev) {
+  aim(ev);
+  const hits = ray.intersectObjects(pickTargets(), false);
+  if (!hits.length) return null;
+  const o = hits[0].object, u = o.userData;
+  if (u.gx !== undefined) return { x:u.gx, y:u.gy };          // a cell column
+  const g = o.parent;                                          // a token column
+  if (g === playerObj) return { x:G.map.px, y:G.map.py };
+  const mo = g.userData.mo;
+  return { x:mo.x, y:mo.y };
 }
 
 function pickComponent(ev) {
-  ptr.x = (ev.clientX / innerWidth) * 2 - 1;
-  ptr.y = -(ev.clientY / innerHeight) * 2 + 1;
-  ray.setFromCamera(ptr, cam);
+  aim(ev);
   for (const g of icMeshes) {
     const hits = ray.intersectObject(g, true);
     if (hits.length) return g;
@@ -1650,6 +1716,9 @@ function frame(now) {
     const k = Math.min(1, a.t);
     a.mesh.scale.y = FOG_H * (1 - k);
     a.mesh.position.y = FOG_H / 2 * (1 - k) - k * 0.3;
+    // the lid is still on screen while it sinks — let the pick column ride it down
+    const u = a.mesh.userData, pk = pickMesh[u.gy]?.[u.gx];
+    if (pk) setPickTop(pk, Math.max(wallMesh[u.gy][u.gx]?.scale.y ?? 0, FOG_H * (1 - k)));
     if (k >= 1) { a.mesh.visible = false; fogAnims.splice(i, 1); }
   }
 
@@ -1703,5 +1772,9 @@ newGame();
 dunGroup.visible = false;
 CAM.tilt = 20; CAM.dist = 118;
 addEventListener('resize', resize);
+addEventListener('orientationchange', resize);
+// a phone hides its URL bar without always firing window resize; the canvas would
+// keep the stale height and every tap would read off by that difference
+visualViewport?.addEventListener('resize', resize);
 resize();
 requestAnimationFrame(frame);

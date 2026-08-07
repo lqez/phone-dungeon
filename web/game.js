@@ -2364,7 +2364,11 @@ function pickComponent(ev) {
 }
 
 canvas.addEventListener('pointerdown', ev => {
-  if (phase === 'board') { const g = pickComponent(ev); if (g) tapComponent(g); return; }
+  if (phase === 'board') {
+    const g = pickComponent(ev);
+    if (g) tapComponent(g); else cancelBoardSel();   // empty space backs out
+    return;
+  }
   if (phase !== 'dungeon' || G.dead) return;
   const t = pickTile(ev);
   press = { t, x:ev.clientX, y:ev.clientY };
@@ -2971,7 +2975,7 @@ function tweenTo(props, ms, done) {
 
 function toBoard() {
   phase = 'zoom';
-  boardSel = null;
+  cancelBoardSel();
   hideInspect();
   warpAtWorld(CAM.focus.x, DUNGEON_Y, CAM.focus.z, () => {
     phase = 'board';
@@ -3000,18 +3004,38 @@ function updateBoardHalos() {
 
 // Now that every part plays by its own rule, choosing one blind is not a choice.
 // First tap reads the datasheet, second tap commits — same contract as the board.
+// First tap: a popover right next to the part, with its datasheet and an ✕.
+// Second tap on the same part enters; empty space or the ✕ backs out.
 let boardSel = null;
+const popEl = document.getElementById('popover');
+
+function cancelBoardSel() {
+  boardSel = null;
+  popEl.classList.remove('on');
+  icMeshes.forEach(o => o.userData.halo.material.emissiveIntensity = 0.75);
+}
+
 function tapComponent(g) {
   const c = g.userData.comp;
-  if (G.cleared.includes(c.id)) { boardSel = null; hideInspect(); say('이미 장악한 소자다'); return; }
-  if (boardSel === c.id) { boardSel = null; hideInspect(); selectComponent(g); return; }
+  if (G.cleared.includes(c.id)) { cancelBoardSel(); say('이미 장악한 소자다'); return; }
+  if (boardSel === c.id) { cancelBoardSel(); selectComponent(g); return; }
   boardSel = c.id;
-  insEl.className = 'on';
-  insEl.innerHTML =
-    `<span class="nm">${c.name}</span> <span class="dt">${c.floors}개 층</span><br>` +
-    `<span class="dt">${c.gimmick}</span><br>` +
-    `<span class="dt"><b class="c">한 번 더 탭하면 진입</b></span>`;
-  icMeshes.forEach(o => o.userData.halo.material.emissiveIntensity = o === g ? 2.6 : 1.1);
+  icMeshes.forEach(o => o.userData.halo.material.emissiveIntensity = o === g ? 2.6 : 0.75);
+
+  popEl.innerHTML =
+    `<button id="popX" aria-label="닫기">✕</button>` +
+    `<div class="nm">${c.name}</div>` +
+    `<div class="dt">${c.floors}개 층 · ${c.gimmick}</div>` +
+    `<div class="go">한 번 더 탭하면 진입</div>`;
+  popEl.classList.add('on');
+  // anchor next to the part, flipped to whichever side has room
+  const v = new THREE.Vector3(c.x, 0.4, c.z).project(cam);
+  const w = stageEl.clientWidth, h = stageEl.clientHeight;
+  const sx = (v.x * 0.5 + 0.5) * w, sy = (1 - (v.y * 0.5 + 0.5)) * h;
+  const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
+  popEl.style.left = Math.max(8, Math.min(w - pw - 8, sx - pw / 2)) + 'px';
+  popEl.style.top = (sy < h * 0.55 ? sy + 22 : sy - ph - 22) + 'px';
+  $('popX').onpointerdown = e => { e.stopPropagation(); cancelBoardSel(); };
 }
 
 // Hyperdrive dive. The canvas itself is scaled toward the tapped part while it

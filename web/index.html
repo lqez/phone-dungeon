@@ -229,6 +229,35 @@
   .st.throttle { color: var(--red); }
   .st.shutdown { color: var(--red); animation: blink .5s steps(2) infinite; }
 
+  /* ───────── component popover ─────────
+     The datasheet floats beside the part you tapped — not in a rail, not in a
+     card. ✕ or empty space dismisses it. */
+  #popover {
+    position: fixed;
+    z-index: 16;
+    width: 220px;
+    padding: 8px 26px 8px 10px;
+    background: #0B1219F5;
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--cyan);
+    font-size: 9.5px; line-height: 1.55; letter-spacing: 0.03em;
+    opacity: 0; pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity .16s, transform .16s;
+  }
+  #popover.on { opacity: 1; pointer-events: auto; transform: none; }
+  #popover .nm { color: var(--text); font-weight: 700; letter-spacing: 0.1em; margin-bottom: 2px; }
+  #popover .dt { color: var(--muted); font-family: var(--sans); font-size: 10.5px; letter-spacing: 0; }
+  #popover .go { color: var(--cyan); font-size: 9px; letter-spacing: 0.08em; margin-top: 5px; }
+  #popover #popX {
+    position: absolute; top: 2px; right: 2px;
+    width: 22px; height: 22px; padding: 0;
+    background: none; border: none;
+    color: var(--dim); font-size: 11px;
+    cursor: pointer;
+  }
+  #popover #popX:hover { color: var(--red); }
+
   /* ───────── toasts ─────────
      Explanations hover over the scene on the side the player is not: they never
      take layout space and never sit on the tile you are about to tap. */
@@ -705,6 +734,8 @@
 </div>
 <div id="buffs"></div>
 </div>
+
+<div id="popover"></div>
 
 <div id="toasts">
   <div id="inspect"></div>

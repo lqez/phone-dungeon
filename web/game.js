@@ -238,41 +238,61 @@ function speckle(g, w, h, n, colors, r0, r1, R) {
 }
 
 // ───────────── die interior: one metal layer, seen from above ─────────────
+// Every cell shows this whole texture, so anything that reads as a self-contained
+// motif turns the floor into a tray of tiles. Tracks therefore run the full width
+// or height at a fixed pitch: they meet across the seam and the field reads as one
+// continuous metal layer that happens to be walked on in grid steps.
 function dieMetalTex(variant) {
   return canvasTex(128, 128, (g, w, h) => {
     const R = prng(variant * 7717 + 13);
-    g.fillStyle = variant ? '#0E3A34' : '#12433B';
+    g.fillStyle = variant ? '#113E37' : '#12423A';       // near-identical: no checkerboard
     g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 70, ['#0D332E', '#164C43'], 2, 5, R);
 
-    // diffusion speckle under the metal
-    speckle(g, w, h, 90, ['#0A2E29', '#175248'], 2, 5, R);
-
-    // routing tracks on a 16px pitch, a couple of them powered
     const pitch = 16, off = variant ? 8 : 0;
     for (let i = 0; i < 8; i++) {
-      const v = R() < 0.5;
-      const p = off + ((i * 2 + (R() * 2 | 0)) % 8) * pitch;
-      const live = R() < 0.28;
-      const len = 40 + R() * 88;
-      const s = R() * (128 - len * 0.4);
-      g.fillStyle = live ? '#2E8877' : '#1C5B50';
-      if (v) g.fillRect(p, s, 4, len); else g.fillRect(s, p, len, 4);
-      g.fillStyle = live ? '#49B9A2' : '#245F55';        // lit top edge of the trace
-      if (v) g.fillRect(p, s, 1, len); else g.fillRect(s, p, len, 1);
+      const p = (off + i * pitch) % 128;
+      if (R() < 0.42) continue;                          // not every lane is routed
+      const live = R() < 0.22;
+      const vert = ((i + variant) % 2) === 0;
+      g.fillStyle = live ? '#2E8877' : '#1A564C';
+      if (vert) g.fillRect(p, 0, 4, h); else g.fillRect(0, p, w, 4);
+      g.fillStyle = live ? '#49B9A2' : '#215A50';
+      if (vert) g.fillRect(p, 0, 1, h); else g.fillRect(0, p, w, 1);
     }
 
-    // vias where tracks stack to the layer below
-    for (let i = 0; i < 7; i++) {
+    // vias sit on the lanes, so they line up across the seam too
+    for (let i = 0; i < 5; i++) {
       const x = ((R() * 8) | 0) * pitch + off, y = ((R() * 8) | 0) * pitch;
       g.fillStyle = '#0A211E'; g.fillRect(x - 1, y - 1, 8, 8);
       g.fillStyle = '#8A6A2E'; g.fillRect(x, y, 6, 6);
       g.fillStyle = '#C89B44'; g.fillRect(x + 1, y + 1, 3, 3);
     }
 
-    // a band of standard cells — the repetition is what reads as "die"
-    g.fillStyle = '#17554B';
-    const cy = ((R() * 6) | 0) * pitch + 6;
-    for (let x = 4; x < 124; x += 7) g.fillRect(x, cy, 4, 12);
+    // the faintest seam, so a grid step is still legible without drawing a box
+    g.fillStyle = '#0C312B';
+    g.fillRect(0, 0, w, 1); g.fillRect(0, 0, 1, h);
+  });
+}
+
+// ───────────── copper pour: the walls, flooded flat like a ground plane ─────────────
+function copperPourTex() {
+  return canvasTex(128, 128, (g, w, h) => {
+    const R = prng(6151);
+    g.fillStyle = '#B4652F';
+    g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 130, ['#9A5528', '#D08A4A'], 3, 8, R);
+    // thermal-relief hatch, running corner to corner so runs of pour join up
+    g.strokeStyle = '#8E4F26'; g.lineWidth = 2;
+    for (let d = -128; d < 256; d += 14) {
+      g.beginPath(); g.moveTo(d, 0); g.lineTo(d + 128, 128); g.stroke();
+    }
+    g.strokeStyle = '#C27743'; g.lineWidth = 1;
+    for (let d = -128; d < 256; d += 14) {
+      g.beginPath(); g.moveTo(d + 1, 0); g.lineTo(d + 129, 128); g.stroke();
+    }
+    g.fillStyle = '#E09A5A55';                            // faint oxidised sheen
+    g.fillRect(0, 0, w, 2);
   });
 }
 
@@ -282,9 +302,10 @@ function passivationTex() {
     const R = prng(4211);
     g.fillStyle = '#1B2732';
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 120, ['#151F28', '#22303D'], 2, 6, R);
-    g.strokeStyle = '#212E3A'; g.lineWidth = 1;
-    for (let p = 0; p <= 128; p += 16) {
+    speckle(g, w, h, 120, ['#161F27', '#1F2B36'], 2, 6, R);
+    // barely-there lattice: the lid should read as an unbroken sheet, not a grid
+    g.strokeStyle = '#1D2833'; g.lineWidth = 1;
+    for (let p = 0; p <= 128; p += 32) {
       g.beginPath(); g.moveTo(p + .5, 0); g.lineTo(p + .5, h); g.stroke();
       g.beginPath(); g.moveTo(0, p + .5); g.lineTo(w, p + .5); g.stroke();
     }
@@ -528,7 +549,7 @@ function paintMaterials() {
   };
   skin(M.pcb, pcbTex(), { roughness: 0.62, metalness: 0.1 });
   skin(M.pcbDark, substrateTex(), { roughness: 0.9 });
-  skin(M.copper, copperTex(false), { roughness: 0.36, metalness: 0.85 });
+  skin(M.copper, copperPourTex(), { roughness: 0.42, metalness: 0.8 });
   skin(M.copperD, copperTex(true), { roughness: 0.5, metalness: 0.7 });
   skin(M.chipBody, pkgTex(31, 'DIE', 1), { roughness: 0.62, metalness: 0.28 });
   M.pouch = mat({ color:0xFFFFFF, map: pouchTex(), roughness: 0.42, metalness: 0.55 });
@@ -793,7 +814,10 @@ function revealFog(m, cx, cy, r) {
 // ════════════════════════════════════════════════════════════════
 
 const TILE = 1;
-const FOG_H = 0.5;
+const FOG_H = 0.38;
+// Copper is a pour, not masonry: one uniform low height, cells butted edge to edge
+// so a run of wall reads as a single flooded plane the way a ground fill does.
+const WALL_H = 0.17;
 const gx2w = x => (x - (W - 1) / 2) * TILE;
 const gy2w = y => (y - (H - 1) / 2) * TILE;
 
@@ -905,17 +929,16 @@ function buildDungeon() {
       const wx = gx2w(x), wz = gy2w(y);
 
       if (m.wall[y][x]) {
-        // copper walls: tall enough to read as solid, short enough not to hide the row behind
-        const h = 0.78 + hash(x, y) * 0.14;
-        const wl = new THREE.Mesh(BOX, hash(x, y) > 0.5 ? M.copper : M.copperD);
-        wl.scale.set(0.92, h, 0.92);
-        wl.position.set(wx, h / 2, wz);
+        const wl = new THREE.Mesh(BOX, M.copper);
+        wl.scale.set(0.999, WALL_H, 0.999);
+        wl.position.set(wx, WALL_H / 2, wz);
         wl.castShadow = true; wl.receiveShadow = true;
         wl.userData = { gx:x, gy:y };
         dunGroup.add(wl); wallMesh[y][x] = wl;
       } else {
+        // butted edge to edge: the metal layer is one surface, not a tray of tiles
         const fl = new THREE.Mesh(BOX, (x + y) % 2 ? M.floor : M.floorAlt);
-        fl.scale.set(0.92, 0.14, 0.92);
+        fl.scale.set(0.999, 0.14, 0.999);
         fl.position.set(wx, -0.07, wz);
         fl.receiveShadow = true;
         fl.userData = { gx:x, gy:y };
@@ -929,7 +952,7 @@ function buildDungeon() {
 
       // fog block sits above the tile and sinks away when lit
       const fg = new THREE.Mesh(BOX, M.fog);
-      fg.scale.set(0.97, FOG_H, 0.97);
+      fg.scale.set(0.999, FOG_H, 0.999);
       fg.position.set(wx, FOG_H / 2, wz);
       // no shadows on fog: the blocks tile edge-to-edge and would shade each other
       // into a uniform black mass, destroying the "lid over the board" read
@@ -1894,7 +1917,6 @@ function buildDock() {
 function syncDock() {
   const live = phase === 'dungeon' && G && !G.dead;
   dockEl.classList.toggle('on', !!live);
-  logEl.classList.toggle('docked', !!live);
   if (!live) return;
   for (const s of SKILLS) {
     const el = slotEls.get(s.id);

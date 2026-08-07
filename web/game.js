@@ -825,7 +825,7 @@ function buildBoard() {
 // ════════════════════════════════════════════════════════════════
 
 let G = null;
-let phase = 'boot';   // boot | board | dungeon | dead
+let phase = 'board';   // board | dungeon | dead — the home screen sits over the board
 
 function newGame() {
   G = {
@@ -2906,12 +2906,11 @@ function restart() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  boot sequence
+//  opening — no boot cutscene: the home screen glitches out and the
+//  board was under it the whole time
 // ════════════════════════════════════════════════════════════════
 
-const bootText = $('bootText');
 const skipBtn = $('skip');
-let bootT = 0, booting = false;   // the dive waits for the icon tap
 
 // ───────────── home screen: the outside of the phone ─────────────
 const homeEl = $('home');
@@ -2940,65 +2939,25 @@ const homeEl = $('home');
   $('stTime').textContent = t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0');
 }
 
+let homeDone = false;
 function launchGame() {
-  if (booting || phase !== 'boot') return;
-  homeEl.classList.add('gone');           // the app-launch zoom is the dive itself
-  setTimeout(() => { booting = true; }, 350);
+  if (homeDone) return;
+  homeDone = true;
+  homeEl.classList.add('gone');   // 지지직 — the screen gives out; the board is under it
+  setTimeout(enterBoard, 650);
 }
 
-const BOOT_LINES = [
-  [0.06, 'user@device:~$ _', false],
-  [0.26, 'GLASS LAYER · DISSOLVING', false],
-  [0.52, '전자 괴물이 검출되었다', false],
-  [0.74, 'DIE SHRINK', true],
-];
-
-function bootStep(dt) {
-  if (!booting) return;
-  bootT += dt * (REDUCED ? 0.6 : 0.2);   // an icon tap already happened — dive briskly
-
-  // glass fades, icon grid dies first
-  const gp = Math.min(1, Math.max(0, (bootT - 0.12) / 0.42));
-  M.glass.opacity = 1 - gp;
-  glassMesh.visible = gp < 1;
-  const icons = glassMesh.userData.icons;
-  icons.visible = gp < 0.85;
-  icons.userData.mat.emissiveIntensity = 0.75 * (1 - gp / 0.85);
-
-  // camera drifts down toward the board
-  CAM.dist = 118 - 48 * Math.min(1, bootT / 0.9);
-  CAM.tilt = 20 + 14 * Math.min(1, bootT / 0.9);
-
-  let line = null;
-  for (const [at, txt, big] of BOOT_LINES) if (bootT >= at) line = [txt, big];
-  if (line) {
-    bootText.textContent = line[0];
-    bootText.classList.toggle('big', line[1]);
-    bootText.style.opacity = '1';
-  }
-  if (bootT > 0.92) bootText.style.opacity = String(Math.max(0, 1 - (bootT - 0.92) / 0.1));
-
-  if (bootT >= 1.04) endBoot();
-}
-
-function endBoot() {
-  if (phase !== 'boot') return;
-  booting = false;
-  homeEl.classList.add('gone');
-  bootText.style.opacity = '0';
+function enterBoard() {
+  homeEl.style.display = 'none';
   skipBtn.classList.add('gone');
-  M.glass.opacity = 0; glassMesh.visible = false;
-  glassMesh.userData.icons.visible = false;
-  CAM.tilt = TILT_STEPS[tiltIdx]; CAM.dist = 70;
   $('tools').classList.add('on');
-  phase = 'board';
+  $('log').classList.add('on');
   updateBoardHalos();
   resize();
   showHelp();
-  $('log').classList.add('on');
   say('기판이 드러났다. <b class="c">소자를 탭</b>해 내려가라');
 }
-skipBtn.onclick = endBoot;
+skipBtn.onclick = launchGame;
 
 // ════════════════════════════════════════════════════════════════
 //  main loop
@@ -3018,7 +2977,6 @@ function frame(now) {
   last = now;
   const t = now / 1000;
 
-  bootStep(dt);
   if (phase === 'dungeon' && G && !G.dead) stepWalk(dt);
 
   // ghost pulse
@@ -3097,7 +3055,7 @@ function frame(now) {
   if (viaObj) viaObj.userData.ring.rotation.z = t * 1.4;
 
   // board idle
-  if (phase === 'board' || phase === 'boot' || booting) {
+  if (phase === 'board') {
     icMeshes.forEach((g, i) => {
       const h = g.userData.halo;
       if (h.visible) h.material.emissiveIntensity = 1.0 + Math.sin(t * 2.6 + i * 0.7) * 0.7;
@@ -3122,10 +3080,13 @@ function frame(now) {
 document.getElementById('build').textContent = 'BUILD ' + (window.__BUILD || 'dev');
 
 buildBoard();
+M.glass.opacity = 0; glassMesh.visible = false;
+glassMesh.userData.icons.visible = false;
 buildDock();
 newGame();
 dunGroup.visible = false;
-CAM.tilt = 20; CAM.dist = 118;
+CAM.tilt = TILT_STEPS[tiltIdx]; CAM.dist = 70;
+updateBoardHalos();
 addEventListener('resize', resize);
 // the top stack grows and shrinks as panels open — refit when its transitions land
 topEl.addEventListener('transitionend', resize);

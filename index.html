@@ -152,6 +152,59 @@
   #inspect b.g { color: var(--green); font-weight: 400; }
   #inspect b.a { color: var(--amber); font-weight: 400; }
 
+  /* ───────── what you are carrying ───────── */
+  #buffs {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 6px;
+  }
+  #buffs:empty { display: none; }
+  .bf {
+    display: flex; align-items: baseline; gap: 4px;
+    padding: 3px 6px 3px 5px;
+    background: #0C131AE6;
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--dim);
+    font-size: 8px; letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .bf .v { font-size: 9.5px; font-weight: 700; color: var(--text); letter-spacing: 0; }
+  .bf.c { border-left-color: var(--cyan); } .bf.c .v { color: var(--cyan); }
+  .bf.g { border-left-color: var(--green); } .bf.g .v { color: var(--green); }
+  .bf.a { border-left-color: var(--amber); } .bf.a .v { color: var(--amber); }
+  .bf.r { border-left-color: var(--red); } .bf.r .v { color: var(--red); }
+  .bf.pulse { animation: bfp 1.1s ease-in-out infinite; }
+  @keyframes bfp { 50% { box-shadow: 0 0 12px #4DE0D055; } }
+
+  /* ───────── upgrade picker ───────── */
+  .picks { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  .pick {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 10px 11px;
+    background: #0C131AF7;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--dim);
+    color: var(--text);
+    text-align: left;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0;
+    transition: border-color .12s, background .12s, transform .08s;
+  }
+  .pick:hover { background: #12202AF7; border-color: var(--cyan); }
+  .pick .ax {
+    flex: 0 0 auto; width: 24px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid currentColor;
+    font-size: 11px; font-weight: 700;
+  }
+  .pick .bd { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .pick .pn { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; }
+  .pick .pd { font-size: 10px; color: var(--muted); }
+  .pick .pnote { font-family: var(--sans); font-size: 10px; line-height: 1.4; color: var(--dim); }
+  .pick .cur { flex: 0 0 auto; font-size: 8.5px; color: var(--dim); letter-spacing: 0.06em; }
+  .pick.c { border-left-color: var(--cyan); } .pick.c .ax { color: var(--cyan); }
+  .pick.g { border-left-color: var(--green); } .pick.g .ax { color: var(--green); }
+  .pick.a { border-left-color: var(--amber); } .pick.a .ax { color: var(--amber); }
+  .pick.r { border-left-color: var(--red); } .pick.r .ax { color: var(--red); }
+
   /* ───────── log ───────── */
   #log {
     margin-top: 7px;
@@ -404,6 +457,7 @@
   </div>
   <div class="row4"><span id="sector">—</span><span id="left"></span></div>
 </div>
+<div id="buffs"></div>
 <div id="inspect"></div>
 <div id="log"></div>
 <div id="coach"></div>

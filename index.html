@@ -42,6 +42,77 @@
 
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
+  /* ───────── phone mockup ─────────
+     The stage carries a transform, so every position:fixed panel inside anchors
+     to it — on a phone it fills the screen and nothing changes; on a desktop it
+     becomes the display of a hardware mockup. */
+  #phone { position: fixed; inset: 0; }
+  #stage { position: absolute; inset: 0; overflow: hidden; transform: translateZ(0); background: var(--ground); }
+  #phone .btn { display: none; }
+
+  @media (min-width: 760px) and (min-height: 640px) {
+    body { background: #101318; }
+    #phone {
+      position: fixed;
+      left: 50%; top: 50%;
+      width: min(432px, calc((100vh - 64px) * 0.462 + 24px));
+      height: calc(100vh - 64px);
+      max-height: 936px;
+      transform: translate(-50%, -50%);
+      /* titanium frame: two-tone rim over a soft drop */
+      padding: 12px;
+      border-radius: 54px;
+      background: linear-gradient(160deg, #3A3F46 0%, #23272D 30%, #15181D 70%, #2C3138 100%);
+      box-shadow:
+        inset 0 0 0 2px #4A5058,
+        inset 0 0 0 5px #0A0C0F,
+        0 40px 80px -24px #000C,
+        0 0 0 1px #00000066;
+    }
+    #stage {
+      border-radius: 42px;
+      box-shadow: inset 0 0 0 3px #000;   /* glass edge */
+    }
+    /* punch-hole camera */
+    #phone::after {
+      content: ""; position: absolute;
+      top: 26px; left: 50%;
+      width: 14px; height: 14px;
+      margin-left: -7px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 38% 34%, #2C3A55 0 18%, #060A12 55%, #000 100%);
+      box-shadow: 0 0 0 3px #05070A, inset 0 0 3px #000;
+      z-index: 60;
+      pointer-events: none;
+    }
+    /* antenna lines on the rim */
+    #phone::before {
+      content: ""; position: absolute; inset: 0;
+      border-radius: 54px;
+      background:
+        linear-gradient(90deg, transparent 0 18%, #565D66 18% calc(18% + 2px), transparent 0 82%, #565D66 82% calc(82% + 2px), transparent 0) top / 100% 2px no-repeat,
+        linear-gradient(90deg, transparent 0 18%, #565D66 18% calc(18% + 2px), transparent 0 82%, #565D66 82% calc(82% + 2px), transparent 0) bottom / 100% 2px no-repeat;
+      pointer-events: none;
+    }
+    /* side keys, hung off the frame */
+    #phone .btn {
+      display: block; position: absolute;
+      width: 4px; border-radius: 2px;
+      background: linear-gradient(180deg, #4A5058, #23272D);
+      box-shadow: inset 0 1px 1px #6A727C, 0 0 2px #000;
+    }
+    #phone .btn.pwr  { right: -4px; top: 26%; height: 84px; }
+    #phone .btn.volu { left: -4px; top: 20%; height: 56px; }
+    #phone .btn.vold { left: -4px; top: calc(20% + 68px); height: 56px; }
+
+    /* the punch hole owns the top edge: readouts start below it, and the
+       corner radius stops clipping the tools and the build stamp */
+    #stage #top { padding-top: 46px; }
+    #stage #tools { top: 46px; right: 16px; }
+    #stage #build { top: 78px; right: 16px; }
+    #stage #skills { padding-bottom: 14px; }
+  }
+
   /* ───────── top stack ─────────
      Readouts all live at the top and flow in one column: status, then the
      inspector, then the message log. The bottom belongs to the skill dock. */
@@ -440,6 +511,8 @@
 </head>
 <body>
 
+<div id="phone"><div id="stage">
+
 <canvas id="scene"></canvas>
 
 <div id="top">
@@ -485,6 +558,10 @@
 
 <div id="bootText"></div>
 <button id="skip">^C</button>
+
+</div><!-- /stage -->
+<span class="btn pwr"></span><span class="btn volu"></span><span class="btn vold"></span>
+</div><!-- /phone -->
 
 <script src="./build.js"></script>
 

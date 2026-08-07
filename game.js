@@ -2339,6 +2339,40 @@ function tapTile(x, y) {
   planTo(x, y);
 }
 
+// What walking this path is worth, before you commit to it: the fog each step
+// will lift, priced with the same rules the walk itself uses — lens distortion,
+// dead cells, cool zones, FOG TAP. The same numbers, just read out in advance.
+function previewWalk(path) {
+  const m = G.map, gm = gim();
+  const seen = new Set();
+  let n = 0;
+  for (const st of path) {
+    const [rx, ry] = gm?.revealAt ? gm.revealAt(st.x, st.y) : [st.x, st.y];
+    let k = 0;
+    for (let y = ry - 1; y <= ry + 1; y++) for (let x = rx - 1; x <= rx + 1; x++) {
+      if (x < 0 || x >= W || y < 0 || y >= H) continue;
+      const key = y * W + x;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (m.fog[y][x] !== 0) k++;
+    }
+    if (gm?.fogGain && m.bad?.[st.y]?.[st.x]) k = 0;   // a dead cell pays nothing
+    n += k;
+  }
+  return {
+    bat: Math.max(0, Math.min(maxBat() - G.bat, n * (G.lv + G.fogBonus))),
+    heat: Math.min(G.heat, n * 2 * (gim()?.zone?.()?.coolMul || 1)),
+  };
+}
+
+// the "N칸 이동" prefix, with what the walk pays baked in
+function walkNote(path) {
+  const pv = previewWalk(path);
+  return `${path.length}칸 이동` +
+    (pv.bat > 0 ? ` · 배터리 <b class="c">+${pv.bat}</b>` : '') +
+    (pv.heat > 0 ? ` · 열 <b class="a">−${pv.heat}</b>` : '');
+}
+
 function planTo(x, y) {
   const m = G.map;
   clearGhost();
@@ -2355,7 +2389,7 @@ function planTo(x, y) {
     G.pending = { kind:'attack', x, y, mon:mo, path:app.path };
     showInspect(mo);
     say(app.path.length
-      ? `${app.path.length}칸 이동 후 <b class="r">교전</b> — 한 번 더 탭하면 실행`
+      ? `${walkNote(app.path)} 후 <b class="r">교전</b> — 한 번 더 탭하면 실행`
       : '한 번 더 탭하면 <b class="r">교전</b>');
   } else {
     const path = findPath(m.px, m.py, x, y);
@@ -2371,10 +2405,11 @@ function planTo(x, y) {
     const onVia = m.via.x === x && m.via.y === y;
     if (onVia) showExitInspect(); else hideInspect();
     const it = m.items.find(i => !i.taken && i.x === x && i.y === y);
-    say(it ? `${path.length}칸 이동 — <b class="a">${it.t.name}</b>을 밟는다. 한 번 더 탭`
+    const note = walkNote(path);
+    say(it ? `${note} — <b class="a">${it.t.name}</b>을 밟는다. 한 번 더 탭`
            : onVia
-             ? `${path.length}칸 이동 — <b class="a">VIA로 하강</b>한다. 한 번 더 탭`
-             : `${path.length}칸 이동 — 한 번 더 탭하면 실행`);
+             ? `${note} — <b class="a">VIA로 하강</b>한다. 한 번 더 탭`
+             : `${note} — 한 번 더 탭하면 실행`);
   }
   drawGhost();
   coach('confirm');

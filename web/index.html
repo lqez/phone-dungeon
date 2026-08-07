@@ -109,7 +109,7 @@
        corner radius stops clipping the tools and the build stamp */
     #stage #top { padding-top: 46px; }
     #stage #tools { top: 46px; right: 16px; }
-    #stage #build { top: 78px; right: 16px; }
+    #stage #build { top: 3px; }
     #stage #skills { padding-bottom: 14px; }
   }
 
@@ -145,6 +145,7 @@
     color: var(--dim);
     margin-bottom: 6px;
   }
+  .row1 span { white-space: nowrap; }
   .row1 b { color: var(--copper); font-weight: 700; }
   .row1 .comp { color: var(--muted); letter-spacing: 0.09em; }
 
@@ -158,6 +159,11 @@
   }
   .meter .fill { position: absolute; inset: 0 auto 0 0; transition: width .25s cubic-bezier(.4,0,.2,1); }
   .meter .cap { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--dim); }
+  /* permanently lost capacity — the battery IS the health bar */
+  .meter .dead {
+    position: absolute; top: 0; bottom: 0; right: 0; width: 0;
+    background: repeating-linear-gradient(45deg, #05070A 0 3px, #241318 3px 6px);
+  }
   .meter .val { width: 50px; text-align: right; font-size: 9.5px; color: var(--text); flex: 0 0 auto; }
 
   #batFill { background: linear-gradient(90deg, #1F6E68, var(--cyan)); }
@@ -195,9 +201,23 @@
   .st.throttle { color: var(--red); }
   .st.shutdown { color: var(--red); animation: blink .5s steps(2) infinite; }
 
+  /* ───────── toasts ─────────
+     Explanations hover over the scene on the side the player is not: they never
+     take layout space and never sit on the tile you are about to tap. */
+  #toasts {
+    position: fixed;
+    left: 10px; right: 10px;
+    z-index: 15;
+    display: flex; flex-direction: column;
+    gap: 5px;
+    pointer-events: none;
+    transition: top .25s, bottom .25s;
+  }
+  #toasts > div { max-width: 436px; width: 100%; margin: 0 auto; }
+
   /* ───────── inspector ───────── */
   #inspect {
-    margin-top: 8px;
+    margin-top: 0;
     background: #0B1219F2;
     border: 1px solid var(--line);
     border-left: 2px solid var(--cyan);
@@ -278,8 +298,9 @@
 
   /* ───────── log ───────── */
   #log {
-    margin-top: 7px;
-    padding-bottom: 4px;
+    background: #0B1219E8;
+    border: 1px solid #16222C;
+    padding: 5px 9px;
     font-size: 9px;
     line-height: 1.55;
     letter-spacing: 0.02em;
@@ -288,6 +309,7 @@
     transition: opacity .5s;
   }
   #log.on { opacity: 1; }
+  #log:empty { display: none; }
   #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #log .fresh { color: var(--text); }
   #log b.c { color: var(--cyan); font-weight: 400; }
@@ -431,7 +453,7 @@
   /* ───────── coach ───────── */
   #coach {
     align-self: center;
-    margin-top: 7px;
+    margin-top: 0;
     max-width: min(330px, 100%);
     padding: 8px 13px;
     background: #0B1219F5;
@@ -494,7 +516,8 @@
   /* build stamp — 날짜.커밋 */
   #build {
     position: fixed; z-index: 12;
-    top: calc(max(10px, env(safe-area-inset-top)) + 31px); right: 10px;
+    top: max(2px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
     font-size: 7.5px; letter-spacing: 0.08em;
     color: #3E4A54;
     pointer-events: none;
@@ -520,11 +543,11 @@
   <div class="row1">
     <span>DEPTH <b id="depth">01</b></span>
     <span class="comp" id="comp">—</span>
-    <span>HEALTH <b id="health">100</b>%</span>
+
   </div>
   <div class="meter">
     <span class="lbl">BATT</span>
-    <span class="bar"><span class="fill" id="batFill"></span><span class="cap" id="batCap"></span></span>
+    <span class="bar"><span class="fill" id="batFill"></span><span class="dead" id="batDead"></span><span class="cap" id="batCap"></span></span>
     <span class="val" id="batVal">10/10</span>
   </div>
   <div class="meter">
@@ -541,9 +564,12 @@
   <div class="row4"><span id="sector">—</span><span id="left"></span></div>
 </div>
 <div id="buffs"></div>
-<div id="inspect"></div>
-<div id="log"></div>
-<div id="coach"></div>
+</div>
+
+<div id="toasts">
+  <div id="inspect"></div>
+  <div id="log"></div>
+  <div id="coach"></div>
 </div>
 
 <div id="tools">

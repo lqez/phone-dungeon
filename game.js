@@ -33,7 +33,7 @@ const XP_TABLE = [5, 15, 30, 50, 75, 105, 140, 180, 225, 275, 330, 390];
 // the lower half, camera stack top-left, radios along the edges.
 const COMPONENTS = [
   { id:'touch',  name:'TOUCH DIGITIZER', x:  0.0, z: -5.6, w: 5.4, d: 1.5, floors: 2, gimmick:'격자가 정직하다. 기믹 없음' },
-  { id:'cam',    name:'CAMERA ISP',      x: -1.9, z: -3.9, w: 2.3, d: 2.3, floors: 3, gimmick:'렌즈 왜곡 — 시야가 중앙으로 쏠린다' },
+  { id:'cam',    name:'CAMERA ISP',      x: -1.9, z: -3.9, w: 2.3, d: 2.3, floors: 3, gimmick:'렌즈 왜곡 — 시야가 중앙 쪽으로 한 칸 더 쏠린다' },
   { id:'soc',    name:'SoC / AP',        x:  0.7, z: -1.7, w: 2.6, d: 2.6, floors: 3, gimmick:'코어 구획마다 규칙이 다르다' },
   { id:'ram',    name:'LPDDR RAM',       x: -1.9, z: -1.0, w: 1.8, d: 1.8, floors: 3, gimmick:'걷힌 안개가 되돌아온다' },
   { id:'pmic',   name:'PMIC',            x:  2.1, z: -3.6, w: 1.5, d: 1.2, floors: 2, gimmick:'전압 변동 — 공격력이 요동친다' },
@@ -885,9 +885,10 @@ const SOC_ZONES = [
 ];
 
 const GIM = {
-  // 렌즈 왜곡 — the reveal is dragged toward the middle of the die
+  // 렌즈 왜곡 — the base 8 around you always open (anything else reads as a bug);
+  // the lens ADDS a second reveal box pulled one cell toward the die centre.
   cam: {
-    revealAt(x, y) {
+    extraAt(x, y) {
       const cx = (W - 1) / 2, cy = (H - 1) / 2;
       return [x + Math.sign(cx - x), y + Math.sign(cy - y)];
     },
@@ -1777,8 +1778,8 @@ function moveTo(x, y) {
   const gm = gim();
   m.px = x; m.py = y;
   G.tiles++;
-  const [rx, ry] = gm?.revealAt ? gm.revealAt(x, y) : [x, y];
-  let got = revealFog(m, rx, ry, 1);
+  let got = revealFog(m, x, y, 1);
+  if (gm?.extraAt) { const [rx, ry] = gm.extraAt(x, y); got += revealFog(m, rx, ry, 1); }
   if (gm?.fogGain) got = gm.fogGain(got);
   gainFromFog(got);
   tickTurn();
@@ -2349,15 +2350,17 @@ function previewWalk(path) {
   const seen = new Set();
   let n = 0;
   for (const st of path) {
-    const [rx, ry] = gm?.revealAt ? gm.revealAt(st.x, st.y) : [st.x, st.y];
     let k = 0;
-    for (let y = ry - 1; y <= ry + 1; y++) for (let x = rx - 1; x <= rx + 1; x++) {
-      if (x < 0 || x >= W || y < 0 || y >= H) continue;
-      const key = y * W + x;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (m.fog[y][x] !== 0) k++;
-    }
+    const boxes = [[st.x, st.y]];
+    if (gm?.extraAt) boxes.push(gm.extraAt(st.x, st.y));
+    for (const [rx, ry] of boxes)
+      for (let y = ry - 1; y <= ry + 1; y++) for (let x = rx - 1; x <= rx + 1; x++) {
+        if (x < 0 || x >= W || y < 0 || y >= H) continue;
+        const key = y * W + x;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (m.fog[y][x] !== 0) k++;
+      }
     if (gm?.fogGain && m.bad?.[st.y]?.[st.x]) k = 0;   // a dead cell pays nothing
     n += k;
   }
@@ -2908,7 +2911,40 @@ function restart() {
 
 const bootText = $('bootText');
 const skipBtn = $('skip');
-let bootT = 0, booting = true;
+let bootT = 0, booting = false;   // the dive waits for the icon tap
+
+// ───────────── home screen: the outside of the phone ─────────────
+const homeEl = $('home');
+{
+  const APPS = [
+    ['📷','카메라','#3A4250'], ['🖼','사진','#4E3A2E'], ['💬','메시지','#2E7D4F'], ['🎵','뮤직','#B03A48'],
+    ['🗺','지도','#2E5E4E'], ['☁️','날씨','#2E5578'], ['🕐','시계','#22262E'], ['📈','주식','#20242C'],
+    ['GAME','DIE SHRINK',''], ['🧮','계산기','#3A3E46'], ['📝','메모','#8A7A3A'], ['⚙️','설정','#3C424C'],
+  ];
+  const DOCK = [['📞','통화','#2E9E52'], ['✉️','메일','#2E6ED8'], ['🌐','웹','#2E5578'], ['🎧','팟캐스트','#7A4FB0']];
+  const mk = ([glyph, name, bg]) => {
+    const el = document.createElement('div');
+    const game = glyph === 'GAME';
+    el.className = 'app' + (game ? ' game' : '');
+    el.innerHTML = `<span class="ic" style="--bg:${bg}">${game ? '' : glyph}</span><span class="lb">${name}</span>`;
+    el.onpointerdown = () => {
+      if (game) return launchGame();
+      el.classList.remove('deny'); void el.offsetWidth;   // restart the wiggle
+      el.classList.add('deny');
+    };
+    return el;
+  };
+  APPS.forEach(a => $('apps').appendChild(mk(a)));
+  DOCK.forEach(a => $('dock').appendChild(mk(a)));
+  const t = new Date();
+  $('stTime').textContent = t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0');
+}
+
+function launchGame() {
+  if (booting || phase !== 'boot') return;
+  homeEl.classList.add('gone');           // the app-launch zoom is the dive itself
+  setTimeout(() => { booting = true; }, 350);
+}
 
 const BOOT_LINES = [
   [0.06, 'user@device:~$ _', false],
@@ -2919,7 +2955,7 @@ const BOOT_LINES = [
 
 function bootStep(dt) {
   if (!booting) return;
-  bootT += dt * (REDUCED ? 0.6 : 0.13);
+  bootT += dt * (REDUCED ? 0.6 : 0.2);   // an icon tap already happened — dive briskly
 
   // glass fades, icon grid dies first
   const gp = Math.min(1, Math.max(0, (bootT - 0.12) / 0.42));
@@ -2946,8 +2982,9 @@ function bootStep(dt) {
 }
 
 function endBoot() {
-  if (!booting) return;
+  if (phase !== 'boot') return;
   booting = false;
+  homeEl.classList.add('gone');
   bootText.style.opacity = '0';
   skipBtn.classList.add('gone');
   M.glass.opacity = 0; glassMesh.visible = false;

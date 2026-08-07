@@ -475,6 +475,87 @@
   }
   #coach b { color: var(--cyan); font-weight: 600; }
 
+  /* ───────── home screen ─────────
+     A believable phone face. Tapping the game's icon is what "launches" the
+     dungeon: the home layer zooms and dissolves, and the boot dive begins. */
+  #home {
+    position: fixed; inset: 0; z-index: 33;
+    display: flex; flex-direction: column;
+    padding: max(10px, env(safe-area-inset-top)) 18px max(14px, env(safe-area-inset-bottom));
+    background:
+      radial-gradient(120% 90% at 82% -10%, #1E3A5C 0%, transparent 55%),
+      radial-gradient(110% 80% at 12% 108%, #14343A 0%, transparent 60%),
+      linear-gradient(165deg, #0A1018 0%, #0B0E16 45%, #060A10 100%);
+    transition: opacity .6s, transform .6s cubic-bezier(.4,0,.2,1);
+  }
+  #home.gone { opacity: 0; transform: scale(1.55); pointer-events: none; }
+
+  .stbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 2px 8px 10px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.02em; color: #E8EDF2;
+  }
+  .stbar .stR { font-size: 10px; font-weight: 400; color: #C8D2DA; letter-spacing: 0.06em; }
+
+  .apps {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: min-content;
+    gap: 20px 8px;
+    padding-top: 12px;
+    align-content: start;
+  }
+  .app {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .app .ic {
+    width: 52px; height: 52px;
+    border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+    background: var(--bg, #2A313A);
+    box-shadow: inset 0 1px 1px #FFFFFF22, 0 4px 10px -4px #000C;
+    transition: transform .12s;
+  }
+  .app:active .ic { transform: scale(0.9); }
+  .app .lb {
+    font-family: var(--sans); font-size: 9.5px; letter-spacing: 0;
+    color: #DDE4EA; text-shadow: 0 1px 2px #000A;
+    white-space: nowrap;
+  }
+  .app.deny .ic { animation: deny .35s; }
+  @keyframes deny { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+  /* the one icon that matters — the favicon made physical */
+  .app.game .ic {
+    background: #07090C;
+    box-shadow: inset 0 0 0 1.5px #4DE0D0, 0 0 18px #4DE0D055, 0 4px 10px -4px #000C;
+    position: relative;
+  }
+  .app.game .ic::before {
+    content: ""; width: 22px; height: 22px; background: #4DE0D0;
+  }
+  .app.game .ic::after {
+    content: ""; position: absolute; width: 9px; height: 9px; background: #07090C;
+  }
+  .app.game .lb { color: #4DE0D0; font-weight: 600; }
+
+  .dots { display: flex; justify-content: center; gap: 7px; padding: 10px 0 12px; }
+  .dots .d { width: 6px; height: 6px; border-radius: 50%; background: #FFFFFF38; }
+  .dots .d.on { background: #FFFFFFB4; }
+
+  .dock {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 12px 10px;
+    border-radius: 24px;
+    background: #FFFFFF14;
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+
   /* ───────── boot ───────── */
   #bootText {
     position: fixed; left: 50%; top: 50%;
@@ -490,7 +571,7 @@
   #bootText.big { font-size: 17px; letter-spacing: 0.4em; }
 
   #skip {
-    position: fixed; right: 16px; bottom: 16px; z-index: 31;
+    position: fixed; right: 16px; bottom: 16px; z-index: 34;   /* above the home layer */
     font-size: 8.5px; letter-spacing: 0.18em; color: var(--dim);
     background: none; padding: 10px; box-shadow: none;
   }
@@ -583,6 +664,15 @@
 <div id="over"><div class="card" id="overCard"></div></div>
 
 <div id="bootText"></div>
+
+<!-- the phone you are about to break into, from the outside -->
+<div id="home">
+  <div class="stbar"><span id="stTime">9:41</span><span class="stR">ᯤ&nbsp; 5G&nbsp; ▮▮▮▯</span></div>
+  <div class="apps" id="apps"></div>
+  <div class="dots"><span class="d on"></span><span class="d"></span><span class="d"></span></div>
+  <div class="dock" id="dock"></div>
+</div>
+
 <button id="skip">^C</button>
 
 </div><!-- /stage -->

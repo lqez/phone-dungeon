@@ -50,7 +50,7 @@ const MONSTERS = [
   { id:'bitrot',  name:'BIT ROT',     shape:'res', col:0xC87137, hp:0.60, atk:1.45, def:0, note:'유리대포 — 약하지만 아프다' },
   { id:'esd',     name:'ESD',         shape:'cap',     col:0x7FA8C9, hp:1.35, atk:0.80, def:1, note:'방어가 높다' },
   { id:'adware',  name:'ADWARE',      shape:'ind',    col:0xB673C9, hp:0.90, atk:0.85, def:0, note:'교전하면 발열한다' },
-  { id:'deadlock',name:'DEADLOCK',    shape:'diode',   col:0xFF4D5E, hp:1.10, atk:1.15, def:0, note:'선공 — 먼저 때린다', ambush:true },
+  { id:'deadlock',name:'DEADLOCK',    shape:'diode',   col:0xFF4D5E, hp:1.10, atk:1.15, def:0, note:'선공 — 첫 교전에서 내가 치기 전에 한 대 먼저 때린다', ambush:true },
 ];
 const BOSS = { id:'panic', name:'KERNEL PANIC', shape:'boss', col:0xFF4D5E, hp:2.2, atk:1.3, def:1, note:'보스', boss:true };
 
@@ -131,6 +131,7 @@ const SKILLS = [
 // ════════════════════════════════════════════════════════════════
 
 const canvas = document.getElementById('scene');
+const topEl = document.getElementById('top');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
 renderer.shadowMap.enabled = true;
@@ -284,6 +285,23 @@ const TIERS = [
 ];
 const tierOf = d => TIERS.reduce((a, t) => d >= t.at ? t : a, TIERS[0]);
 
+// Boards are not all green. Each floor of the board tier is fabbed in one of these
+// mask colours — one colourway per floor, so a floor stays coherent while the run
+// keeps changing shirts.
+const MASKS = [
+  { id:'green',  base:'#12423A', base2:'#113E37', speck:['#0D332E','#164C43'],
+    trace:'#1A564C', live:'#2E8877', hi:'#215A50', hiLive:'#49B9A2', seam:'#0C312B' },
+  { id:'blue',   base:'#123049', base2:'#112C44', speck:['#0D2438','#173F5C'],
+    trace:'#1B4467', live:'#2E6E9C', hi:'#22507A', hiLive:'#4FA3D6', seam:'#0B2135' },
+  { id:'black',  base:'#1B1D21', base2:'#181A1E', speck:['#131519','#232629'],
+    trace:'#2B2E33', live:'#8A6A3E', hi:'#35393F', hiLive:'#D9A441', seam:'#0F1113' },
+  { id:'red',    base:'#3B1A22', base2:'#37171F', speck:['#2C1219','#4E262F'],
+    trace:'#5A2530', live:'#A8434F', hi:'#6B2E3A', hiLive:'#E0707D', seam:'#260F15' },
+  { id:'purple', base:'#271A3A', base2:'#241736', speck:['#1D122C','#33224A'],
+    trace:'#3A2757', live:'#7A4FB0', hi:'#46315F', hiLive:'#B98BE8', seam:'#160D22' },
+];
+const maskFor = d => MASKS[(d * 5 + 3) % MASKS.length];
+
 // ───────────── die interior: one metal layer, seen from above ─────────────
 // Every cell shows this whole texture, so anything that reads as a self-contained
 // motif turns the floor into a tray of tiles. Tracks therefore run the full width
@@ -292,14 +310,15 @@ const tierOf = d => TIERS.reduce((a, t) => d >= t.at ? t : a, TIERS[0]);
 function dieMetalTex(variant, P) {
   return canvasTex(128, 128, (g, w, h) => {
     const R = prng(variant * 7717 + 13);
-    g.fillStyle = variant ? P.base2 : P.base;            // near-identical: no checkerboard
+    g.fillStyle = (variant % 2) ? P.base2 : P.base;      // near-identical: no checkerboard
     g.fillRect(0, 0, w, h);
     speckle(g, w, h, 70, P.speck, 2, 5, R);
 
-    const pitch = 16, off = variant ? 8 : 0;
+    const pitch = 16, off = (variant % 2) ? 8 : 0;
+    const kind = variant % 3;                            // routing / pads / vias
     for (let i = 0; i < 8; i++) {
       const p = (off + i * pitch) % 128;
-      if (R() < 0.42) continue;                          // not every lane is routed
+      if (R() < (kind === 0 ? 0.34 : 0.62)) continue;    // not every lane is routed
       const live = R() < 0.22;
       const vert = ((i + variant) % 2) === 0;
       g.fillStyle = live ? P.live : P.trace;
@@ -308,12 +327,29 @@ function dieMetalTex(variant, P) {
       if (vert) g.fillRect(p, 0, 1, h); else g.fillRect(0, p, w, 1);
     }
 
-    // vias sit on the lanes, so they line up across the seam too
-    for (let i = 0; i < 5; i++) {
-      const x = ((R() * 8) | 0) * pitch + off, y = ((R() * 8) | 0) * pitch;
-      g.fillStyle = P.seam; g.fillRect(x - 1, y - 1, 8, 8);
-      g.fillStyle = '#8A6A2E'; g.fillRect(x, y, 6, 6);
-      g.fillStyle = '#C89B44'; g.fillRect(x + 1, y + 1, 3, 3);
+    if (kind === 1) {                                    // a field of exposed pads
+      for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+        if (R() < 0.3) continue;
+        const x = 16 + a * 32, y = 16 + b * 32;
+        g.fillStyle = P.seam;     g.fillRect(x - 7, y - 5, 18, 12);
+        g.fillStyle = '#B98F3E';  g.fillRect(x - 6, y - 4, 16, 10);
+        g.fillStyle = '#D9A441';  g.fillRect(x - 6, y - 4, 16, 3);
+      }
+    } else {                                             // vias, parked on the lanes
+      for (let i = 0; i < (kind === 2 ? 9 : 5); i++) {
+        const x = ((R() * 8) | 0) * pitch + off, y = ((R() * 8) | 0) * pitch;
+        g.fillStyle = P.seam; g.fillRect(x - 1, y - 1, 8, 8);
+        g.fillStyle = '#8A6A2E'; g.fillRect(x, y, 6, 6);
+        g.fillStyle = '#C89B44'; g.fillRect(x + 1, y + 1, 3, 3);
+      }
+    }
+
+    if (variant >= 4) {                                  // silkscreen designator
+      g.strokeStyle = '#8C9A94'; g.lineWidth = 2;
+      g.strokeRect(10.5, 10.5, 46, 30);
+      g.fillStyle = '#8C9A94';
+      g.font = '700 13px ui-monospace, Menlo, monospace';
+      g.fillText(['TP','R','C','L','D','U'][variant % 6] + (1 + (R() * 60 | 0)), 15, 57);
     }
 
     // the faintest seam, so a grid step is still legible without drawing a box
@@ -629,35 +665,47 @@ function paintMaterials() {
   skin(M.copperD, copperTex(true), { roughness: 0.5, metalness: 0.7 });
   skin(M.chipBody, pkgTex(31, 'DIE', 1), { roughness: 0.62, metalness: 0.28 });
   M.pouch = mat({ color:0xFFFFFF, map: pouchTex(), roughness: 0.42, metalness: 0.55 });
-  for (const t of TIERS) TIER_MAT[t.id] = buildTierMats(t);
-  applyTier(TIERS[0]);
+  for (const t of TIERS) {
+    if (t.id === 'board') for (const mk of MASKS) TIER_MAT['board:' + mk.id] = buildTierMats(t, mk);
+    else TIER_MAT[t.id] = buildTierMats(t, t.pal);
+  }
+  applyTier(TIERS[0], 1);
 }
 
 // ───────────── one material set per tier, built once ─────────────
 const TIER_MAT = {};
-function buildTierMats(t) {
-  const P = t.pal;
+const VARIANTS = 6;
+function buildTierMats(t, P) {
   const floorTex = t.id === 'cell' ? electrolyteTex : dieMetalTex;
-  const a = floorTex(0, P), b = floorTex(1, P);
   const glow = new THREE.Color(P.hiLive);
   const skin = (map, o) => mat(Object.assign({ color: 0xFFFFFF, map }, o));
+  const floors = [];
+  for (let v = 0; v < VARIANTS; v++) {
+    const tx = floorTex(v, P);
+    floors.push(skin(tx, { emissiveMap: tx, emissive: glow,
+      emissiveIntensity: 0.5 - (v % 2) * 0.08, roughness: 0.62, metalness: 0.3 }));
+  }
   return {
-    floor:    skin(a, { emissiveMap: a, emissive: glow, emissiveIntensity: 0.5, roughness: 0.62, metalness: 0.3 }),
-    floorAlt: skin(b, { emissiveMap: b, emissive: glow, emissiveIntensity: 0.42, roughness: 0.62, metalness: 0.3 }),
-    pour:     skin(copperPourTex(P), { roughness: t.id === 'board' ? 0.42 : 0.3, metalness: 0.85 }),
-    lid:      skin(passivationTex(P), { roughness: 0.96 }),
-    sub:      skin(substrateTex(P), { roughness: 0.9 }),
+    floors,
+    pour:     skin(copperPourTex(t.pal), { roughness: t.id === 'board' ? 0.42 : 0.3, metalness: 0.85 }),
+    lid:      skin(passivationTex(t.pal), { roughness: 0.96 }),
+    sub:      skin(substrateTex(t.pal), { roughness: 0.9 }),
   };
 }
 
 // swap the dungeon palette wholesale — the tier is what "how deep am I" looks like
-let tier = TIERS[0];
-function applyTier(t) {
+let tier = TIERS[0], tierFloors = null, maskName = 'green';
+function applyTier(t, depth) {
   tier = t;
-  const s = TIER_MAT[t.id];
-  M.floor = s.floor; M.floorAlt = s.floorAlt;
+  const mk = t.id === 'board' ? maskFor(depth) : null;
+  maskName = mk ? mk.id : t.id;
+  const s = TIER_MAT[mk ? 'board:' + mk.id : t.id];
+  tierFloors = s.floors;
+  M.floor = s.floors[0]; M.floorAlt = s.floors[1];
   M.copper = s.pour; M.fog = s.lid; M.pcbDark = s.sub;
 }
+// which of the six patterns this cell was fabbed with — stable per cell and floor
+const floorMat = (x, y) => tierFloors[Math.floor(hash(x, y) * VARIANTS) % VARIANTS];
 
 function buildBoard() {
   paintMaterials();
@@ -858,16 +906,19 @@ const GIM = {
     },
   },
 
-  // 걷힌 안개가 되돌아온다 — refresh, and the row you left goes dark again
+  // 걷힌 안개가 되돌아온다 — refresh. What comes back is the map, not the charge:
+  // a re-fogged cell is marked spent, or the floor would be an endless battery farm.
   ram: {
+    onGen(m) { m.bad = Array.from({ length: H }, () => new Array(W).fill(0)); },
     onTurn() {
       if (G.tiles % 4) return;
       const m = G.map, back = [];
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
         if (!m.fog[y][x] && !m.wall[y][x] && dist(x, y, m.px, m.py) > 3) back.push({ x, y });
-      shuffle(back).slice(0, 3).forEach(p => { m.fog[p.y][p.x] = 1; });
+      shuffle(back).slice(0, 3).forEach(p => { m.fog[p.y][p.x] = 1; m.bad[p.y][p.x] = 1; });
       if (back.length) syncMeshes();
     },
+    fogGain(n) { return G.map.bad?.[G.map.py]?.[G.map.px] ? 0 : n; },
   },
 
   // 전압 변동 — ATK swings every turn
@@ -1156,7 +1207,7 @@ const WALL_H = 0.17;
 const gx2w = x => (x - (W - 1) / 2) * TILE;
 const gy2w = y => (y - (H - 1) / 2) * TILE;
 
-let tileMesh = [], fogMesh = [], wallMesh = [], monObj = [], itemObj = [], viaObj = null, playerObj = null;
+let tileMesh = [], fogMesh = [], wallMesh = [], monObj = [], itemObj = [], coilObj = [], viaObj = null, playerObj = null;
 let pickGrid = [], pickMesh = [], ghostObjs = [];
 let fogAnims = [], floaters = [];
 
@@ -1190,7 +1241,7 @@ function clearDungeon() {
     c.traverse(o => { if (o.isMesh && o.userData.own) o.geometry?.dispose?.(); });
     dunGroup.remove(c);
   }
-  tileMesh = []; fogMesh = []; wallMesh = []; monObj = []; itemObj = [];
+  tileMesh = []; fogMesh = []; wallMesh = []; monObj = []; itemObj = []; coilObj = [];
   viaObj = null; playerObj = null; pickGrid = []; pickMesh = []; ghostObjs = [];
   fogAnims = []; floaters = [];
 }
@@ -1247,7 +1298,7 @@ function buildDieEdge() {
 
 function buildDungeon() {
   clearDungeon();
-  applyTier(tierOf(G.depth));      // palette follows depth, before anything is built
+  applyTier(tierOf(G.depth), G.depth);   // palette follows depth, before anything is built
   const m = G.map;
 
   // substrate slab under everything
@@ -1278,7 +1329,7 @@ function buildDungeon() {
       } else {
         // butted edge to edge: the metal layer is one surface, not a tray of tiles
         const bad = m.bad?.[y]?.[x];
-        const fl = new THREE.Mesh(BOX, bad ? badMat : ((x + y) % 2 ? M.floor : M.floorAlt));
+        const fl = new THREE.Mesh(BOX, bad ? badMat : floorMat(x, y));
         fl.scale.set(0.999, 0.14, 0.999);
         fl.position.set(wx, -0.07, wz);
         fl.receiveShadow = true;
@@ -1317,14 +1368,27 @@ function buildDungeon() {
   vg.userData = { gx:m.via.x, gy:m.via.y, ring };
   dunGroup.add(vg); viaObj = vg;
 
-  for (const [a, b2] of m.coils || []) for (const c of [a, b2]) {
-    const coil = new THREE.Mesh(TOR, emissive(0xC87137, 1.8));
-    coil.rotation.x = Math.PI / 2;
-    coil.scale.set(1.35, 1.35, 1.35);
-    coil.position.set(gx2w(c.x), 0.06, gy2w(c.y));
-    coil.userData.spin = true;
-    dunGroup.add(coil);
-  }
+  // A coil is a pair, so draw it as one: two flat windings in the colour its twin
+  // shares, plus a ferrite slug, so it never reads as an empty pickup ring.
+  (m.coils || []).forEach(([a, b2], i) => {
+    const col = [0x4DE0D0, 0xB673C9, 0x6BD98A][i % 3];
+    for (const c of [a, b2]) {
+      const g2 = new THREE.Group();
+      for (const r of [1.15, 0.72]) {
+        const w2 = new THREE.Mesh(TOR, emissive(col, 1.5));
+        w2.rotation.x = Math.PI / 2;
+        w2.scale.set(r, r, 0.8);
+        w2.position.y = 0.05;
+        g2.add(w2);
+      }
+      const slug = new THREE.Mesh(CYL, emissive(col, 0.9));
+      slug.scale.set(0.22, 0.09, 0.22); slug.position.y = 0.05;
+      g2.add(slug);
+      g2.position.set(gx2w(c.x), 0, gy2w(c.y));
+      g2.userData = { coil: c };
+      dunGroup.add(g2); coilObj.push(g2);
+    }
+  });
 
   m.mons.forEach(mo => monObj.push(makeMonster(mo)));
   m.items.forEach(it => itemObj.push(makeItem(it)));
@@ -1595,6 +1659,7 @@ function syncMeshes() {
     g.userData.bar.material.emissive.setHex(r > 0.5 ? 0x6BD98A : r > 0.25 ? 0xFFB454 : 0xFF4D5E);
   });
   itemObj.forEach(g => { g.visible = !g.userData.it.taken && m.fog[g.userData.it.y][g.userData.it.x] !== 1; });
+  coilObj.forEach(g => { const c = g.userData.coil; g.visible = m.fog[c.y][c.x] !== 1; });
   if (viaObj) {
     viaObj.visible = m.fog[m.via.y][m.via.x] !== 1;
     // a sealed VIA glows red — the state has to be readable from the board, not
@@ -1837,7 +1902,7 @@ function checkLevel() {
 function attack(mo) {
   if (G.shutdown > 0) { say('셧다운 중 — 이동해서 <b class="c">냉각</b>하라'); return; }
   const my = Math.max(1, effAtk() - mo.def);
-  if (mo.t.ambush && !mo.wasHit) { takeHit(mo, '기습'); if (G.dead) return; }
+  if (mo.t.ambush && !mo.wasHit) { takeHit(mo, '선공'); if (G.dead) return; }
   mo.wasHit = true;
   gim()?.onNoise?.(G.map.px, G.map.py);
   hurt(mo, my);
@@ -2118,18 +2183,29 @@ function resize() {
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h);
   }
-  const aspect = w / h;
-  // fit the play area, leaving vertical room for the HUD band and the log band
+  // The readouts are a real object with a real height. Measure them, fit the play
+  // area into what is left, then bias the ortho window so the board sits in that
+  // band — otherwise the panels sit on top of the tiles you are trying to tap.
+  const topH = topEl.offsetHeight || 0;
+  const dockH = dockEl.classList.contains('on') ? dockEl.offsetHeight || 0 : 0;
+  const availH = Math.max(160, h - topH - dockH - 10);
+
   const inDun = phase === 'dungeon' || phase === 'zoom';
   const needW = inDun ? W + 2.2 : PHONE_W + 2.4;
   const needH = (inDun ? H + 1.5 : PHONE_H + 1.2) * Math.cos(CAM.tilt * RAD)
-              + (inDun ? 6.0 : 3.2);
+              + (inDun ? 1.2 : 1.0);
+
+  const aspect = w / availH;
   let fw, fh;
   if (aspect < needW / needH) { fw = needW; fh = needW / aspect; }
   else { fh = needH; fw = needH * aspect; }
-  viewSpan = fh;
+
+  const unitsPerPx = fh / availH;              // same scale, stretched to the whole screen
+  const fhFull = h * unitsPerPx;
+  const shift = (topH - dockH) / 2 * unitsPerPx;
+  viewSpan = fhFull;
   cam.left = -fw / 2; cam.right = fw / 2;
-  cam.top = fh / 2; cam.bottom = -fh / 2;
+  cam.top = fhFull / 2 + shift; cam.bottom = -fhFull / 2 + shift;
   cam.updateProjectionMatrix();
 }
 
@@ -2466,7 +2542,7 @@ function showInspect(mo) {
     `<span class="nm">${mo.t.name}</span> <span class="dt">Lv${mo.lv} · ${mo.hp}/${mo.max}${mo.def ? ' · DEF ' + mo.def : ''}</span><br>` +
     `<span class="dt">내 피해 <b class="c">${my}</b>` +
     (kills ? ' · <b class="g">한 방에 처치</b>' : ` · 반격 <b class="r">${back}</b>`) +
-    (ambush ? ` · 기습 <b class="r">${ambush}</b>` : '') +
+    (ambush ? `<br><span class="dt"><b class="r">선공</b> — 내가 치기 전에 <b class="r">${ambush}</b> 피해를 먼저 맞는다</span>` : '') +
     ` · 교환 후 배터리 <b class="${lethal ? 'r' : 'c'}">${Math.max(0, after)}</b>` +
     (lethal ? ' <b class="r">치명</b>' : '') + `</span><br>` +
     `<span class="dt">${mo.t.note}</span>`;
@@ -2943,6 +3019,8 @@ function frame(now) {
 // ════════════════════════════════════════════════════════════════
 //  go
 // ════════════════════════════════════════════════════════════════
+
+document.getElementById('build').textContent = 'BUILD ' + (window.__BUILD || 'dev');
 
 buildBoard();
 buildDock();

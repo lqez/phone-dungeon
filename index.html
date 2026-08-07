@@ -420,6 +420,16 @@
   }
   #tools button:hover { color: var(--cyan); border-color: var(--cyan); }
 
+  /* build stamp — 날짜.커밋 */
+  #build {
+    position: fixed; z-index: 12;
+    top: calc(max(10px, env(safe-area-inset-top)) + 31px); right: 10px;
+    font-size: 7.5px; letter-spacing: 0.08em;
+    color: #3E4A54;
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
+
   @media (min-width: 900px) {
     #top { max-width: 520px; }
   }
@@ -467,6 +477,7 @@
   <button id="helpBtn" title="도움말" aria-label="도움말">?</button>
   <button id="camBtn" title="시점 전환" aria-label="시점 전환">◱</button>
 </div>
+<div id="build"></div>
 
 <div id="skills"></div>
 
@@ -474,6 +485,8 @@
 
 <div id="bootText"></div>
 <button id="skip">^C</button>
+
+<script src="./build.js"></script>
 
 <script type="importmap">
 {

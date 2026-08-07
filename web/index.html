@@ -98,6 +98,22 @@
   }
   .row3 b { color: var(--text); font-weight: 700; }
   .row3 .st { margin-left: auto; letter-spacing: 0.16em; }
+
+  /* the floor's contract — what clearing or skipping is worth here */
+  .row4 {
+    display: flex; gap: 10px; align-items: baseline;
+    margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid #16222C;
+    font-size: 9.5px; letter-spacing: 0.1em; color: var(--dim);
+  }
+  .row4 #sector {
+    color: var(--muted);
+    min-width: 0; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+  }
+  .row4 #sector b { font-weight: 700; }
+  .row4 #left { margin-left: auto; flex: 0 0 auto; white-space: nowrap; }
+  .row4 #left b { color: var(--text); font-weight: 700; }
   .st.nominal { color: var(--dim); }
   .st.warm { color: var(--amber); }
   .st.throttle { color: var(--red); }
@@ -107,7 +123,7 @@
   #inspect {
     position: fixed;
     left: 50%; transform: translateX(-50%) translateY(-8px);
-    top: 118px;
+    top: 136px;
     width: calc(100% - 28px); max-width: 432px;
     z-index: 11;
     background: #0B1219F2;
@@ -382,6 +398,7 @@
     <span>XP <b id="xp">0/5</b></span>
     <span class="st nominal" id="stt">NOMINAL</span>
   </div>
+  <div class="row4"><span id="sector">—</span><span id="left"></span></div>
 </div>
 
 <div id="inspect"></div>

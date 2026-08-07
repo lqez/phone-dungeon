@@ -132,6 +132,7 @@ const SKILLS = [
 
 const canvas = document.getElementById('scene');
 const topEl = document.getElementById('top');
+const stageEl = document.getElementById('stage');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(2, devicePixelRatio));
 renderer.shadowMap.enabled = true;
@@ -2175,7 +2176,8 @@ function applyCamera() {
 let viewSpan = 15;
 let sizedW = 0, sizedH = 0, sizedDpr = 0;
 function resize() {
-  const w = innerWidth, h = innerHeight, dpr = Math.min(2, devicePixelRatio);
+  // the stage is the screen: full viewport on a phone, the mockup's display on desktop
+  const w = stageEl.clientWidth, h = stageEl.clientHeight, dpr = Math.min(2, devicePixelRatio);
   // reallocating the drawing buffer flickers, and visualViewport fires on every
   // URL-bar frame — only resize when the box actually changed
   if (w !== sizedW || h !== sizedH || dpr !== sizedDpr) {
@@ -3028,6 +3030,8 @@ newGame();
 dunGroup.visible = false;
 CAM.tilt = 20; CAM.dist = 118;
 addEventListener('resize', resize);
+// the top stack grows and shrinks as panels open — refit when its transitions land
+topEl.addEventListener('transitionend', resize);
 addEventListener('orientationchange', resize);
 // a phone hides its URL bar without always firing window resize; the canvas would
 // keep the stale height and every tap would read off by that difference

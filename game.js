@@ -1846,8 +1846,15 @@ function stepOn(x, y) {
 }
 
 function descend() {
-  if (G.floor >= G.comp.floors) completeComponent();
-  else nextFloor(false);
+  if (G.floor >= G.comp.floors) { completeComponent(); return; }
+  phase = 'zoom';
+  const m = G.map;
+  warpAtWorld(gx2w(m.via.x), DUNGEON_Y + 0.2, gy2w(m.via.y), () => {
+    nextFloor(false);
+    phase = 'dungeon';
+    resize();
+    sync();
+  });
 }
 
 // BAD BLOCK floors seal the exit until half the sector is cleared
@@ -2925,19 +2932,21 @@ function tweenTo(props, ms, done) {
 }
 
 function toBoard() {
-  phase = 'board';
+  phase = 'zoom';
   boardSel = null;
-  $('hud').classList.remove('on');
-  $('log').classList.remove('on');
-  syncDock();
-  boardGroup.visible = true;
   hideInspect();
-  resize();
-  tweenTo({ y: 0, dist: 70 }, 1100, () => {
-    say('소자를 선택하라');
+  warpAtWorld(CAM.focus.x, DUNGEON_Y, CAM.focus.z, () => {
+    phase = 'board';
+    $('hud').classList.remove('on');
+    dunGroup.visible = false;
+    boardGroup.visible = true;
+    CAM.focus.set(0, 0, 0);
+    CAM.dist = 70;
+    syncDock();
+    resize();
     updateBoardHalos();
+    say('소자를 선택하라');
   });
-  updateBoardHalos();
 }
 
 function updateBoardHalos() {
@@ -2967,21 +2976,50 @@ function tapComponent(g) {
   icMeshes.forEach(o => o.userData.halo.material.emissiveIntensity = o === g ? 2.6 : 1.1);
 }
 
+// Hyperdrive dive. The canvas itself is scaled toward the tapped part while it
+// blurs out; at the peak the scene is swapped in one frame; then it decompresses.
+// No camera travel between worlds — there is nothing to scroll past.
+let warpT1 = null, warpT2 = null;
+function warpAtWorld(x, y, z, cut) {
+  const v = new THREE.Vector3(x, y, z).project(cam);
+  canvas.style.transformOrigin =
+    `${(v.x * 0.5 + 0.5) * 100}% ${(1 - (v.y * 0.5 + 0.5)) * 100}%`;
+  stageEl.classList.add('warp');
+  canvas.classList.remove('warpout', 'warpin');
+  void canvas.offsetWidth;
+  canvas.classList.add('warpin');
+  tweenTo({ dist: Math.max(24, CAM.dist * 0.45) }, 460);   // real parallax under the blur
+  clearTimeout(warpT1); clearTimeout(warpT2);
+  warpT1 = setTimeout(() => {
+    tween = null;                                          // the rush must not outlive the cut
+    cut();
+    canvas.style.transformOrigin = '50% 50%';
+    canvas.classList.remove('warpin');
+    void canvas.offsetWidth;
+    canvas.classList.add('warpout');
+    warpT2 = setTimeout(() => {
+      canvas.classList.remove('warpout');
+      stageEl.classList.remove('warp');
+    }, 560);
+  }, 470);
+}
+
 function selectComponent(g) {
   const c = g.userData.comp;
   if (G.cleared.includes(c.id)) { say('이미 장악한 소자다'); return; }
   phase = 'zoom';
   icMeshes.forEach(o => o.userData.halo.visible = false);
-  enterComponent(c);
-  dunGroup.visible = true;
-  resize();
-  tweenTo({ y: DUNGEON_Y, dist: 40 }, 1200, () => {
-    phase = 'dungeon';
+  enterComponent(c);                       // built now, revealed at the cut
+  warpAtWorld(c.x, 0.3, c.z, () => {
     boardGroup.visible = false;
+    dunGroup.visible = true;
+    CAM.focus.set(0, DUNGEON_Y, 0);
+    CAM.dist = 40;
+    phase = 'dungeon';
     $('hud').classList.add('on');
     $('log').classList.add('on');
     resize();
-    sync();                       // the dock only appears once the phase is live
+    sync();                                // the dock only appears once the phase is live
     say(`<b class="c">${c.name}</b> 진입 — ${c.gimmick}`);
     coach('move');
   });

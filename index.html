@@ -486,9 +486,29 @@
       radial-gradient(120% 90% at 82% -10%, #1E3A5C 0%, transparent 55%),
       radial-gradient(110% 80% at 12% 108%, #14343A 0%, transparent 60%),
       linear-gradient(165deg, #0A1018 0%, #0B0E16 45%, #060A10 100%);
-    transition: opacity .6s, transform .6s cubic-bezier(.4,0,.2,1);
   }
-  #home.gone { opacity: 0; transform: scale(1.55); pointer-events: none; }
+  /* 지지직 — horizontal tears, colour bleed, then the screen is simply not there */
+  #home.gone { pointer-events: none; animation: zap .62s steps(1) both; }
+  #home.gone::after {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg, #FFFFFF12 0 1px, transparent 1px 3px);
+    mix-blend-mode: overlay;
+  }
+  @keyframes zap {
+    0%   { opacity: 1; }
+    8%   { transform: translateX(-7px); filter: invert(.15) saturate(3); }
+    16%  { transform: translateX(5px) skewX(-2deg); clip-path: inset(0 0 34% 0); filter: none; }
+    24%  { transform: none; clip-path: inset(18% 0 0 0); filter: hue-rotate(120deg); }
+    34%  { transform: translateY(4px); clip-path: inset(42% 0 13% 0); opacity: .92; }
+    46%  { transform: translateX(-12px); clip-path: inset(8% 0 61% 0); filter: invert(.6); opacity: .8; }
+    60%  { transform: none; clip-path: inset(70% 0 4% 0); filter: saturate(0); opacity: .55; }
+    74%  { clip-path: inset(30% 0 40% 0); opacity: .35; }
+    88%  { clip-path: inset(48% 0 46% 0); opacity: .16; }
+    100% { clip-path: inset(50% 0 50% 0); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #home.gone { animation: none; opacity: 0; transition: opacity .3s; }
+  }
 
   .stbar {
     display: flex; justify-content: space-between; align-items: center;

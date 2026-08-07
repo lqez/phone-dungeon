@@ -42,19 +42,24 @@
 
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
-  /* ───────── HUD ───────── */
-  #hud {
+  /* ───────── top stack ─────────
+     Readouts all live at the top and flow in one column: status, then the
+     inspector, then the message log. The bottom belongs to the skill dock. */
+  #top {
     position: fixed;
     top: 0; left: 50%;
     transform: translateX(-50%);
-    width: 100%;
-    max-width: 460px;
-    padding: max(12px, env(safe-area-inset-top)) 14px 12px;
-    padding-right: 82px;   /* clear the corner tools */
+    width: 100%; max-width: 460px;
     z-index: 10;
     pointer-events: none;
+    display: flex; flex-direction: column;
+    padding: max(10px, env(safe-area-inset-top)) 12px 0;
+    background: linear-gradient(180deg, #05070AF2 0%, #05070ACC 55%, #05070A66 78%, transparent 100%);
+  }
+
+  #hud {
+    padding-right: 70px;   /* clear the corner tools */
     font-variant-numeric: tabular-nums;
-    background: linear-gradient(180deg, #05070AEE 0%, #05070ACC 60%, transparent 100%);
     opacity: 0;
     transition: opacity .5s;
   }
@@ -64,25 +69,25 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    font-size: 10px;
-    letter-spacing: 0.14em;
+    font-size: 9px;
+    letter-spacing: 0.13em;
     color: var(--dim);
-    margin-bottom: 7px;
+    margin-bottom: 6px;
   }
   .row1 b { color: var(--copper); font-weight: 700; }
-  .row1 .comp { color: var(--muted); letter-spacing: 0.1em; }
+  .row1 .comp { color: var(--muted); letter-spacing: 0.09em; }
 
-  .meter { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-  .meter .lbl { width: 40px; font-size: 9px; letter-spacing: 0.12em; color: var(--dim); flex: 0 0 auto; }
+  .meter { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+  .meter .lbl { width: 34px; font-size: 8px; letter-spacing: 0.11em; color: var(--dim); flex: 0 0 auto; }
   .meter .bar {
-    flex: 1; height: 10px;
+    flex: 1; height: 8px;
     background: #0A1017;
     border: 1px solid var(--line);
     position: relative; overflow: hidden;
   }
   .meter .fill { position: absolute; inset: 0 auto 0 0; transition: width .25s cubic-bezier(.4,0,.2,1); }
   .meter .cap { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--dim); }
-  .meter .val { width: 58px; text-align: right; font-size: 11px; color: var(--text); flex: 0 0 auto; }
+  .meter .val { width: 50px; text-align: right; font-size: 9.5px; color: var(--text); flex: 0 0 auto; }
 
   #batFill { background: linear-gradient(90deg, #1F6E68, var(--cyan)); }
   #heatFill { background: linear-gradient(90deg, #2A4A52, var(--amber)); }
@@ -92,19 +97,19 @@
   @keyframes blink { 50% { opacity: .3; } }
 
   .row3 {
-    display: flex; gap: 12px;
-    font-size: 10px; letter-spacing: 0.1em;
-    color: var(--muted); margin-top: 7px;
+    display: flex; gap: 10px;
+    font-size: 9px; letter-spacing: 0.09em;
+    color: var(--muted); margin-top: 6px;
   }
   .row3 b { color: var(--text); font-weight: 700; }
-  .row3 .st { margin-left: auto; letter-spacing: 0.16em; }
+  .row3 .st { margin-left: auto; letter-spacing: 0.14em; }
 
   /* the floor's contract — what clearing or skipping is worth here */
   .row4 {
-    display: flex; gap: 10px; align-items: baseline;
-    margin-top: 6px; padding-top: 6px;
+    display: flex; gap: 8px; align-items: baseline;
+    margin-top: 5px; padding-top: 5px;
     border-top: 1px solid #16222C;
-    font-size: 9.5px; letter-spacing: 0.1em; color: var(--dim);
+    font-size: 8.5px; letter-spacing: 0.09em; color: var(--dim);
   }
   .row4 #sector {
     color: var(--muted);
@@ -121,23 +126,24 @@
 
   /* ───────── inspector ───────── */
   #inspect {
-    position: fixed;
-    left: 50%; transform: translateX(-50%) translateY(-8px);
-    top: 136px;
-    width: calc(100% - 28px); max-width: 432px;
-    z-index: 11;
+    margin-top: 8px;
     background: #0B1219F2;
     border: 1px solid var(--line);
     border-left: 2px solid var(--cyan);
-    padding: 9px 12px;
-    font-size: 11px;
-    line-height: 1.6;
-    letter-spacing: 0.04em;
-    pointer-events: none;
+    padding: 7px 10px;
+    font-size: 9.5px;
+    line-height: 1.55;
+    letter-spacing: 0.03em;
     opacity: 0;
-    transition: opacity .18s, transform .18s;
+    max-height: 0; overflow: hidden;
+    transform: translateY(-6px);
+    transition: opacity .18s, transform .18s, max-height .18s, margin-top .18s, padding .18s;
+    padding-top: 0; padding-bottom: 0;
   }
-  #inspect.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #inspect.on {
+    opacity: 1; transform: translateY(0);
+    max-height: 130px; padding-top: 7px; padding-bottom: 7px;
+  }
   #inspect.lethal { border-left-color: var(--red); }
   #inspect .nm { color: var(--text); font-weight: 700; letter-spacing: 0.1em; }
   #inspect .dt { color: var(--muted); }
@@ -148,24 +154,16 @@
 
   /* ───────── log ───────── */
   #log {
-    position: fixed;
-    bottom: 0; left: 50%;
-    transform: translateX(-50%);
-    width: 100%; max-width: 460px;
-    padding: 10px 14px max(12px, env(safe-area-inset-bottom));
-    transition: bottom .35s;
-    z-index: 10;
-    pointer-events: none;
-    font-size: 10.5px;
-    line-height: 1.6;
+    margin-top: 7px;
+    padding-bottom: 4px;
+    font-size: 9px;
+    line-height: 1.55;
+    letter-spacing: 0.02em;
     color: var(--muted);
-    background: linear-gradient(0deg, #05070AEE 0%, #05070ACC 55%, transparent 100%);
     opacity: 0;
     transition: opacity .5s;
   }
   #log.on { opacity: 1; }
-  /* the dock owns the bottom edge once skills are live */
-  #log.docked { bottom: calc(72px + env(safe-area-inset-bottom)); }
   #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #log .fresh { color: var(--text); }
   #log b.c { color: var(--cyan); font-weight: 400; }
@@ -196,8 +194,8 @@
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 2px;
-    min-height: 56px;
-    padding: 7px 4px 6px;
+    min-height: 50px;
+    padding: 6px 4px 5px;
     background: #0C131AF2;
     border: 1px solid var(--line);
     border-top: 2px solid #24596A;
@@ -213,12 +211,12 @@
     background: repeating-linear-gradient(90deg, #6E5A2E 0 6px, transparent 6px 11px);
     opacity: .8;
   }
-  .sk .nm { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; }
+  .sk .nm { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; }
   .sk .ef {
-    font-family: var(--sans); font-size: 9px; line-height: 1.2;
+    font-family: var(--sans); font-size: 8px; line-height: 1.2;
     color: var(--muted); letter-spacing: 0; text-align: center;
   }
-  .sk .cost { font-size: 9px; letter-spacing: 0.06em; color: var(--amber); }
+  .sk .cost { font-size: 8px; letter-spacing: 0.05em; color: var(--amber); }
 
   .sk:active { transform: translateY(1px); }
   .sk.ready { border-top-color: var(--cyan); }
@@ -238,7 +236,7 @@
     position: absolute; inset: 0;
     display: flex; align-items: center; justify-content: center;
     background: #060A0ECC;
-    font-size: 19px; font-weight: 700; color: var(--cyan);
+    font-size: 16px; font-weight: 700; color: var(--cyan);
     letter-spacing: 0; font-variant-numeric: tabular-nums;
     text-shadow: 0 0 12px #4DE0D066;
   }
@@ -267,21 +265,21 @@
     text-align: center;
   }
   .card h1 {
-    font-size: 22px; letter-spacing: 0.32em; font-weight: 700;
+    font-size: 19px; letter-spacing: 0.3em; font-weight: 700;
     color: var(--cyan); text-shadow: 0 0 28px #4DE0D055;
     text-wrap: balance;
   }
   .card h1.dead { color: var(--red); text-shadow: 0 0 28px #FF4D5E55; }
-  .card .sub { font-size: 9.5px; letter-spacing: 0.24em; color: var(--dim); }
+  .card .sub { font-size: 8.5px; letter-spacing: 0.22em; color: var(--dim); }
   .card p {
-    font-family: var(--sans); font-size: 13px; line-height: 1.75;
+    font-family: var(--sans); font-size: 11.5px; line-height: 1.7;
     color: var(--muted); letter-spacing: 0;
   }
   .card p b { color: var(--text); font-weight: 600; }
   .card p b.c { color: var(--cyan); }
 
   .legend { display: flex; flex-direction: column; gap: 11px; width: 100%; text-align: left; }
-  .lg { display: flex; gap: 11px; align-items: center; font-family: var(--sans); font-size: 12.5px; line-height: 1.5; color: var(--muted); letter-spacing: 0; }
+  .lg { display: flex; gap: 10px; align-items: center; font-family: var(--sans); font-size: 11px; line-height: 1.5; color: var(--muted); letter-spacing: 0; }
   .lg b { color: var(--text); font-weight: 600; }
   .sw { flex: 0 0 auto; width: 26px; height: 26px; position: relative; }
   .sw::after {
@@ -293,12 +291,12 @@
   .sw.tall::after { transform: skewY(-14deg) scaleY(.62) translateY(-4px); box-shadow: 0 5px 0 -1px #00000088, 0 0 14px var(--c); }
   .sw.ring::after { border-radius: 50%; background: none; border: 3px solid var(--c); }
 
-  .stats { display: grid; grid-template-columns: auto auto; gap: 6px 24px; font-size: 11.5px; letter-spacing: 0.1em; color: var(--dim); font-variant-numeric: tabular-nums; width: 100%; }
+  .stats { display: grid; grid-template-columns: auto auto; gap: 5px 22px; font-size: 10.5px; letter-spacing: 0.1em; color: var(--dim); font-variant-numeric: tabular-nums; width: 100%; }
   .stats span:nth-child(even) { text-align: right; color: var(--text); }
 
   button {
-    font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em;
-    padding: 13px 30px; border: none; cursor: pointer;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em;
+    padding: 11px 26px; border: none; cursor: pointer;
     color: var(--ground); background: var(--cyan);
     transition: filter .15s, transform .1s;
   }
@@ -308,22 +306,27 @@
 
   /* ───────── coach ───────── */
   #coach {
-    position: fixed; left: 50%; bottom: calc(146px + env(safe-area-inset-bottom));
-    transform: translateX(-50%) translateY(10px);
-    z-index: 15;
-    max-width: min(340px, calc(100% - 32px));
-    padding: 11px 16px;
+    align-self: center;
+    margin-top: 7px;
+    max-width: min(330px, 100%);
+    padding: 8px 13px;
     background: #0B1219F5;
     border: 1px solid var(--cyan);
-    box-shadow: 0 0 34px #4DE0D022, 0 10px 30px -10px #000;
+    box-shadow: 0 0 26px #4DE0D022, 0 8px 24px -10px #000;
     font-family: var(--sans);
-    font-size: 13px; line-height: 1.6;
+    font-size: 11px; line-height: 1.55;
     color: var(--text); letter-spacing: 0;
     text-align: center;
-    opacity: 0; pointer-events: none;
-    transition: opacity .35s, transform .35s;
+    opacity: 0;
+    max-height: 0; overflow: hidden;
+    padding-top: 0; padding-bottom: 0;
+    transform: translateY(-6px);
+    transition: opacity .3s, transform .3s, max-height .3s, padding .3s;
   }
-  #coach.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #coach.on {
+    opacity: 1; transform: translateY(0);
+    max-height: 90px; padding-top: 8px; padding-bottom: 8px;
+  }
   #coach b { color: var(--cyan); font-weight: 600; }
 
   /* ───────── boot ───────── */
@@ -331,18 +334,18 @@
     position: fixed; left: 50%; top: 50%;
     transform: translate(-50%, -50%);
     z-index: 30;
-    font-size: 10px; letter-spacing: 0.26em;
+    font-size: 9px; letter-spacing: 0.24em;
     color: var(--cyan);
     text-shadow: 0 0 16px #4DE0D077;
     text-align: center; line-height: 2.2;
     opacity: 0; transition: opacity .5s;
     pointer-events: none; white-space: nowrap;
   }
-  #bootText.big { font-size: 20px; letter-spacing: 0.44em; }
+  #bootText.big { font-size: 17px; letter-spacing: 0.4em; }
 
   #skip {
     position: fixed; right: 16px; bottom: 16px; z-index: 31;
-    font-size: 9px; letter-spacing: 0.2em; color: var(--dim);
+    font-size: 8.5px; letter-spacing: 0.18em; color: var(--dim);
     background: none; padding: 10px; box-shadow: none;
   }
   #skip:hover { color: var(--cyan); }
@@ -351,21 +354,21 @@
   /* ───────── corner ───────── */
   #tools {
     position: fixed; z-index: 12;
-    top: max(12px, env(safe-area-inset-top)); right: 12px;
+    top: max(10px, env(safe-area-inset-top)); right: 10px;
     display: flex; gap: 6px;
     opacity: 0; transition: opacity .5s;
   }
   #tools.on { opacity: 1; }
   #tools button {
-    width: 30px; height: 30px; padding: 0;
-    font-size: 11px; letter-spacing: 0;
+    width: 27px; height: 27px; padding: 0;
+    font-size: 10px; letter-spacing: 0;
     color: var(--dim); background: #0E141BDD;
     border: 1px solid var(--line);
   }
   #tools button:hover { color: var(--cyan); border-color: var(--cyan); }
 
   @media (min-width: 900px) {
-    #hud, #log { max-width: 520px; }
+    #top { max-width: 520px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
@@ -376,6 +379,7 @@
 
 <canvas id="scene"></canvas>
 
+<div id="top">
 <div id="hud">
   <div class="row1">
     <span>DEPTH <b id="depth">01</b></span>
@@ -400,16 +404,16 @@
   </div>
   <div class="row4"><span id="sector">—</span><span id="left"></span></div>
 </div>
-
 <div id="inspect"></div>
+<div id="log"></div>
+<div id="coach"></div>
+</div>
 
 <div id="tools">
   <button id="helpBtn" title="도움말" aria-label="도움말">?</button>
   <button id="camBtn" title="시점 전환" aria-label="시점 전환">◱</button>
 </div>
 
-<div id="coach"></div>
-<div id="log"></div>
 <div id="skills"></div>
 
 <div id="over"><div class="card" id="overCard"></div></div>

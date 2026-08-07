@@ -2188,17 +2188,31 @@ function resize() {
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h);
   }
-  // The readouts are a real object with a real height. Measure them, fit the play
-  // area into what is left, then bias the ortho window so the board sits in that
-  // band — otherwise the panels sit on top of the tiles you are trying to tap.
-  const topH = topEl.offsetHeight || 0;
+  const inDun = phase === 'dungeon' || phase === 'zoom';
+
+  if (!inDun) {
+    // Hub: this IS the inside of the phone, not a diagram of one. Fit the board
+    // plate to the full stage width and let the chassis crop at the edges — the
+    // glass went transparent, you are looking straight down into the device.
+    const fw = PLATE_W + 0.5;
+    const fh = fw * h / w;
+    viewSpan = fh;
+    cam.left = -fw / 2; cam.right = fw / 2;
+    cam.top = fh / 2; cam.bottom = -fh / 2;
+    cam.updateProjectionMatrix();
+    placeToasts();
+    return;
+  }
+
+  // Dungeon: the readouts are a real object with a real height. Measure them, fit
+  // the play area into what is left, then bias the ortho window so the board sits
+  // in that band — otherwise the panels sit on the tiles you are trying to tap.
+  const topH = $('hud').classList.contains('on') ? topEl.offsetHeight || 0 : 0;
   const dockH = dockEl.classList.contains('on') ? dockEl.offsetHeight || 0 : 0;
   const availH = Math.max(160, h - topH - dockH - 10);
 
-  const inDun = phase === 'dungeon' || phase === 'zoom';
-  const needW = inDun ? W + 2.2 : PHONE_W + 2.4;
-  const needH = (inDun ? H + 1.5 : PHONE_H + 1.2) * Math.cos(CAM.tilt * RAD)
-              + (inDun ? 1.2 : 1.0);
+  const needW = W + 2.2;
+  const needH = (H + 1.5) * Math.cos(CAM.tilt * RAD) + 1.2;
 
   const aspect = w / availH;
   let fw, fh;
@@ -2596,7 +2610,8 @@ function placeToasts() {
     toastsEl.style.top = 'auto';
     toastsEl.style.bottom = ((dockEl.classList.contains('on') ? dockEl.offsetHeight : 0) + 10) + 'px';
   } else {
-    toastsEl.style.top = (topEl.offsetHeight + 8) + 'px';
+    const topH = document.getElementById('hud').classList.contains('on') ? topEl.offsetHeight : 46;
+    toastsEl.style.top = (topH + 8) + 'px';
     toastsEl.style.bottom = 'auto';
   }
 }

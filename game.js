@@ -54,6 +54,33 @@ const MONSTERS = [
 ];
 const BOSS = { id:'panic', name:'KERNEL PANIC', shape:'boss', col:0xFF4D5E, hp:2.2, atk:1.3, def:1, note:'보스', boss:true };
 
+// ───────────── floor contracts ─────────────
+// "Clear the floor or run for the VIA" was a 2%-vs-4% coin flip, which is no
+// decision at all. Two things fix that: the exit toll now scales with how many
+// you leave breathing (so partial clears are a real middle ground), and every
+// floor below the first draws a contract that changes what the two ends are worth.
+const SECTORS = [
+  { id:'clean',   name:'CLEAN ROOM',      col:'g',
+    rule:'전멸하면 배터리 최대치 <b class="c">+1</b> (영구)',
+    short:'전멸 → 최대치 +1' },
+  { id:'thermal', name:'THERMAL RUNAWAY', col:'a',
+    rule:'남기고 내려가면 잔존 1기당 다음 층 시작 열 <b class="r">+9</b>',
+    short:'남기면 다음 층 열 +9/기' },
+  { id:'lock',    name:'BAD BLOCK',       col:'r',
+    rule:'절반 이상 처치해야 <b class="a">VIA가 열린다</b>',
+    short:'절반 처치까지 VIA 봉인' },
+  { id:'leak',    name:'LEAKAGE',         col:'r',
+    rule:'남기고 내려가면 잔존 1기당 <b class="r">HEALTH −1</b> 추가',
+    short:'남기면 수명 추가 −1/기' },
+  { id:'salvage', name:'SALVAGE',         col:'g',
+    rule:'전멸하면 <b class="a">부품 1개</b>를 즉시 회수한다',
+    short:'전멸 → 부품 1개' },
+  { id:'migrate', name:'MIGRATION',       col:'a',
+    rule:'남기고 내려가면 최대 <b class="r">3기</b>가 다음 층까지 따라온다',
+    short:'남기면 3기가 따라온다' },
+];
+const QUIET = { id:'quiet', name:'NOMINAL', col:'', rule:'특이사항 없음', short:'—' };
+
 const ITEMS = [
   { id:'atk',   kind:'INSTALL', name:'HEATSINK PASTE', col:0x6BD98A, desc:'ATK +2 (영구)' },
   { id:'def',   kind:'INSTALL', name:'SHIELD CAN',     col:0x6BD98A, desc:'DEF +1 (영구)' },
@@ -636,6 +663,9 @@ function newGame() {
     bat:10, health:100, heat:0, shutdown:0,
     depth:0, floor:0, comp:null, cleared:[],
     kills:0, tiles:0,
+    batBonus:0,     // CLEAN ROOM payouts, permanent
+    carry:[],       // monsters that followed you down from a MIGRATION floor
+    nextHeat:0,     // heat a THERMAL floor charges you on arrival
     buff:0, cd:{}, watchdog:false,
     dead:false, cause:'',
     log:[], coach:new Set(),
@@ -645,7 +675,7 @@ function newGame() {
   };
 }
 
-const maxBat = () => Math.max(1, Math.floor(10 * G.lv * G.health / 100));
+const maxBat = () => Math.max(1, Math.floor(10 * G.lv * G.health / 100) + G.batBonus);
 function heatState() {
   if (G.shutdown > 0) return 'shutdown';
   if (G.heat >= 90) return 'throttle';
@@ -695,18 +725,29 @@ function genMap(depth) {
   shuffle(open);
 
   const mons = [];
-  const count = Math.min(11, 6 + Math.floor(depth / 2));
+  // whatever you refused to kill upstairs shows up here first, at full health
+  for (const c of G.carry) {
+    if (!open.length) break;
+    const p = open.shift();
+    mons.push({ ...c, x:p.x, y:p.y, hp:c.max, halt:0, dead:false, wasHit:false, migrated:true });
+  }
+  const count = Math.min(11, 6 + Math.floor(depth / 2)) - mons.length;
   const base = 1 + Math.floor(depth * 0.72);
   for (let i = 0; i < count && open.length; i++) {
     const p = open.shift();
     const boss = depth % 4 === 0 && i === 0;
     const t = boss ? BOSS : pick(MONSTERS);
     const lv = Math.max(1, boss ? base + 2 : base + ri(-1, 2));
-    const hp = Math.max(1, Math.round(11 * lv * t.hp));
+    // 8, not 11. At 11 an equal-level ZOMBIE cost exactly one full battery — that
+    // is death, so clearing a floor was never on the table and every floor ended
+    // the same way. At 8 four of the five types are worth meleeing and DEADLOCK
+    // stays the one you answer with SURGE.
+    const hp = Math.max(1, Math.round(8 * lv * t.hp));
     mons.push({ x:p.x, y:p.y, t, lv, hp, max:hp,
       atk: Math.max(1, Math.round(5 * lv * t.atk)), def: Math.round(t.def * lv),
       halt:0, dead:false, wasHit:false });
   }
+  G.carry = [];
 
   const items = [];
   for (let i = 0, n = ri(2, 3); i < n && open.length; i++) {
@@ -715,7 +756,9 @@ function genMap(depth) {
   }
 
   const fog = Array.from({ length: H }, () => new Array(W).fill(1));
-  const m = { wall, mons, items, via, fog, px, py };
+  // the first floor of a run stays plain — one new rule at a time
+  const sector = depth <= 1 ? QUIET : pick(SECTORS);
+  const m = { wall, mons, items, via, fog, px, py, sector };
   revealFog(m, px, py, 1);
   return m;
 }
@@ -1097,7 +1140,14 @@ function syncMeshes() {
     g.userData.bar.material.emissive.setHex(r > 0.5 ? 0x6BD98A : r > 0.25 ? 0xFFB454 : 0xFF4D5E);
   });
   itemObj.forEach(g => { g.visible = !g.userData.it.taken && m.fog[g.userData.it.y][g.userData.it.x] !== 1; });
-  if (viaObj) viaObj.visible = m.fog[m.via.y][m.via.x] !== 1;
+  if (viaObj) {
+    viaObj.visible = m.fog[m.via.y][m.via.x] !== 1;
+    // a sealed VIA glows red — the state has to be readable from the board, not
+    // just the HUD, because the whole floor is planned around whether it is open
+    const sealed = viaLocked();
+    viaObj.userData.ring.material.emissive.setHex(sealed ? 0xFF4D5E : 0xC87137);
+    viaObj.userData.ring.material.color.setHex(sealed ? 0xFF4D5E : 0xC87137);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1110,19 +1160,62 @@ function enterComponent(comp) {
   nextFloor(true);
 }
 
-function nextFloor(first) {
-  if (!first) {
-    const cleared = G.map.mons.every(m => m.dead);
-    const loss = cleared ? 2 : 4;
-    G.health = Math.max(10, G.health - loss);
-    G.bat = Math.min(G.bat, maxBat());
-    say(cleared ? `VIA 통과 — 전멸 보너스 <b class="g">HEALTH −${loss}%</b>`
-                : `VIA 통과 — 배터리 열화 <b class="a">HEALTH −${loss}%</b>`);
+// what leaving this floor costs right now, and why — the same numbers the
+// inspector previews before you commit to stepping on the VIA
+function exitQuote() {
+  const m = G.map;
+  const left = m.mons.filter(o => !o.dead).length;
+  const s = m.sector;
+  const locked = viaLocked();
+  // A wiped floor costs nothing and hands the battery back: clearing has to be
+  // worth the fog and battery it burns, or "run for the VIA" wins every time.
+  let loss = left === 0 ? 0 : Math.min(10, 2 + left);
+  if (s.id === 'leak') loss += left;
+  // a sealed VIA can always be forced — a floor you cannot clear must never be
+  // a floor you cannot leave, or the run just stops instead of ending
+  if (locked) loss += 10;
+  return { left, cleared: left === 0, loss: Math.min(24, loss), sector: s, locked };
+}
+
+// charge the toll and settle the floor's contract
+function payExit() {
+  const q = exitQuote(), s = q.sector, m = G.map;
+  G.health = Math.max(10, G.health - q.loss);
+
+  const notes = [];
+  if (q.cleared) {
+    G.heat = 0; G.shutdown = 0;                    // a cleared core runs cool
+    G.bat = maxBat();
+    notes.push('전멸 — <b class="g">완충 · 열 0 · 수명 유지</b>');
+    if (s.id === 'clean') { G.batBonus++; notes.push('<b class="c">배터리 최대치 +1</b>'); }
+    if (s.id === 'salvage') G.salvage = pick(ITEMS);
+  } else {
+    if (s.id === 'thermal') {
+      G.nextHeat = q.left * 9;
+      notes.push(`<b class="r">다음 층 시작 열 +${G.nextHeat}</b>`);
+    }
+    if (s.id === 'leak') notes.push(`<b class="r">누설 −${q.left}%</b>`);
+    if (s.id === 'migrate') {
+      G.carry = m.mons.filter(o => !o.dead).slice(0, 3)
+        .map(o => ({ t:o.t, lv:o.lv, max:o.max, atk:o.atk, def:o.def }));
+      notes.push(`<b class="r">${G.carry.length}기가 따라온다</b>`);
+    }
   }
+  G.bat = Math.min(G.bat, maxBat());
+  say(`VIA 통과 — 잔존 <b class="${q.left ? 'a' : 'g'}">${q.left}</b>기 · ` +
+      `<b class="${q.loss > 4 ? 'r' : 'a'}">HEALTH −${q.loss}%</b>` +
+      (notes.length ? ' · ' + notes.join(' · ') : ''));
+}
+
+function nextFloor(first) {
+  if (!first) payExit();
   G.floor++; G.depth++;
   G.pending = null; G.walking = null; G.targeting = null;
   G.map = genMap(G.depth);
   buildDungeon();
+  if (G.nextHeat) { addHeat(G.nextHeat); G.nextHeat = 0; }
+  if (G.salvage) { applyItem(G.salvage); G.salvage = null; }
+  say(`<b class="${G.map.sector.col}">${G.map.sector.name}</b> — ${G.map.sector.rule}`);
   sync();
 }
 
@@ -1173,13 +1266,27 @@ function stepOn(x, y) {
   if (m.via.x === x && m.via.y === y) {
     if (m.mons.some(o => !o.dead && dist(o.x, o.y, x, y) <= 1)) {
       say('교전 중에는 VIA를 통과할 수 없다');
-    } else if (G.floor >= G.comp.floors) {
-      completeComponent();
+    } else if (viaLocked()) {
+      showExitInspect();
+      say(`<b class="r">BAD BLOCK</b> — 봉인됐다. ${killsNeeded()}기를 더 처치하거나, ` +
+          `발밑을 <b class="a">한 번 더 탭</b>해 강제로 뚫어라`);
     } else {
-      nextFloor(false);
+      descend();
     }
   }
 }
+
+function descend() {
+  if (G.floor >= G.comp.floors) completeComponent();
+  else nextFloor(false);
+}
+
+// BAD BLOCK floors seal the exit until half the sector is cleared
+const killsNeeded = () => {
+  const m = G.map;
+  return Math.max(0, Math.ceil(m.mons.length / 2) - m.mons.filter(o => o.dead).length);
+};
+const viaLocked = () => G.map.sector.id === 'lock' && killsNeeded() > 0;
 
 function applyItem(t) {
   switch (t.id) {
@@ -1632,10 +1739,20 @@ function tapTile(x, y) {
 
   if (x === m.px && y === m.py) {
     clearPending();
+    // standing on a sealed VIA, your own tile becomes the "force it" button
+    if (m.via.x === x && m.via.y === y && viaLocked()) {
+      if (G.forcing) { G.forcing = false; descend(); return; }
+      G.forcing = true;
+      showExitInspect();
+      say(`한 번 더 탭하면 봉인을 <b class="r">강제로 뚫는다</b> — ${exitQuote().loss}%를 지불한다`);
+      return;
+    }
+    G.forcing = false;
     say(`LV${G.lv} · ATK ${effAtk()} · 배터리 ${G.bat}/${maxBat()} — 스킬은 <b class="c">아래 슬롯</b>`);
     coach('skill');
     return;
   }
+  G.forcing = false;
 
   // second tap on the same target = confirm
   if (G.pending && G.pending.x === x && G.pending.y === y) { commitPending(); return; }
@@ -1672,10 +1789,11 @@ function planTo(x, y) {
       return;
     }
     G.pending = { kind:'move', x, y, path };
-    hideInspect();
+    const onVia = m.via.x === x && m.via.y === y;
+    if (onVia) showExitInspect(); else hideInspect();
     const it = m.items.find(i => !i.taken && i.x === x && i.y === y);
     say(it ? `${path.length}칸 이동 — <b class="a">${it.t.name}</b>을 밟는다. 한 번 더 탭`
-           : (m.via.x === x && m.via.y === y)
+           : onVia
              ? `${path.length}칸 이동 — <b class="a">VIA로 하강</b>한다. 한 번 더 탭`
              : `${path.length}칸 이동 — 한 번 더 탭하면 실행`);
   }
@@ -1850,6 +1968,27 @@ function showInspect(mo) {
     `<span class="dt">${mo.t.note}</span>`;
   coach('mon');
 }
+// the whole clear-or-run decision, priced out before you step on the VIA
+function showExitInspect() {
+  const q = exitQuote(), s = q.sector;
+  const locked = viaLocked();
+  const after = Math.max(10, G.health - q.loss);
+  insEl.className = 'on' + (locked || q.loss >= 8 ? ' lethal' : '');
+  insEl.innerHTML =
+    `<span class="nm">VIA</span> <span class="dt">잔존 <b class="${q.left ? 'a' : 'g'}">${q.left}</b>기` +
+    ` · HEALTH ${G.health}% → <b class="${q.loss > 4 ? 'r' : 'c'}">${after}%</b>` +
+    ` · 배터리 최대 ${Math.max(1, Math.floor(10 * G.lv * after / 100) + G.batBonus)}</span><br>` +
+    (locked
+      ? `<span class="dt"><b class="r">봉인</b> — ${killsNeeded()}기를 더 처치하면 열린다` +
+        `<br>지금 뚫으면 <b class="r">+10%</b>를 더 문다</span>`
+      : q.cleared
+        ? `<span class="dt"><b class="g">전멸</b> — 배터리 완충 · 열 0 · 수명 손실 없음` +
+          (s.id === 'clean' ? ' · <b class="c">배터리 최대치 +1</b>' : '') +
+          (s.id === 'salvage' ? ' · <b class="a">부품 1개 회수</b>' : '') + `</span>`
+        : `<span class="dt">지금 내려가면 — ${s.id === 'quiet' ? '잔존만큼 수명이 깎인다' : s.short}` +
+          `<br>남은 ${q.left}기를 정리하면 <b class="g">손실 0 · 완충</b>으로 끝난다</span>`);
+}
+
 function hideInspect() { insEl.className = ''; }
 
 const coachEl = document.getElementById('coach');
@@ -1859,7 +1998,7 @@ const COACH = {
   fog:  '어두운 블록이 <b>안개</b>다. 걷을 때마다 배터리가 회복되지만 — 안개는 <b>유한하다</b>',
   mon:  '붉게 빛나면 나보다 강한 적이다. 적을 탭하면 <b>교환 결과</b>가 위에 뜬다',
   skill:'화면 아래 <b>스킬 슬롯</b>을 누르면 그 자리에서 발동한다. 길게 누르면 설명',
-  via:  '구리 링이 <b>VIA</b>다. 밟으면 아래층 — 배터리 최대치는 영구히 줄어든다',
+  via:  '구리 링이 <b>VIA</b>다. 밟기 전에 탭하면 <b>내려가는 대가</b>가 위에 뜬다 — 적을 남길수록 비싸진다',
 };
 let coachTimer = null;
 function coach(id) {
@@ -1894,6 +2033,10 @@ function sync() {
   $('lv').textContent = G.lv;
   $('atk').textContent = effAtk();
   $('xp').textContent = `${G.xp}/${XP_TABLE[G.lv - 1] ?? '—'}`;
+  const q = exitQuote();
+  $('sector').innerHTML = `<b class="${q.sector.col}">${q.sector.name}</b> · ${q.sector.short}`;
+  $('left').innerHTML = `잔존 <b>${q.left}</b> · 통과 ` +
+    `<b class="${q.loss > 4 ? 'r' : 'a'}">−${q.loss}%</b>${q.locked ? ' <b class="r">봉인</b>' : ''}`;
   syncDock();
 
   if (viaObj && viaObj.visible) coach('via');
@@ -1916,7 +2059,8 @@ function showHelp() {
       <div class="lg"><span class="sw tall" style="--c:#C87137"></span><span><b>구리 벽</b> — 높이 솟은 것. 지나갈 수 없다</span></div>
       <div class="lg"><span class="sw" style="--c:#FF4D5E"></span><span><b>몬스터</b> — 붉으면 나보다 높은 레벨. 숫자가 레벨이다. 움직이지 않는다</span></div>
       <div class="lg"><span class="sw" style="--c:#4DE0D0"></span><span><b>나</b> — 시안 큐브. 스킬은 화면 <b>아래 슬롯</b>에서 바로 쓴다</span></div>
-      <div class="lg"><span class="sw ring" style="--c:#C87137"></span><span><b>VIA</b> — 아래층으로 내려가는 구멍</span></div>
+      <div class="lg"><span class="sw ring" style="--c:#C87137"></span><span><b>VIA</b> — 아래층으로 내려가는 구멍. <b>전멸하고 내려가면 완충·손실 0</b>, 적을 남기면 남긴 수만큼 수명이 깎인다</span></div>
+      <div class="lg"><span class="sw" style="--c:#FFB454"></span><span><b>구역 규칙</b> — 층마다 다르다. HUD 맨 아랫줄에 그 층에서 <b>다 잡을 값어치</b>가 적혀 있다</span></div>
       <div class="lg"><span class="sw" style="--c:#6BD98A"></span><span><b>부품</b> — 밟는 즉시 발동한다. 인벤토리는 없다</span></div>
     </div>
     <p>레벨업하면 <b class="c">배터리가 완충되고 열이 0</b>이 된다. 죽기 직전에 레벨업을 맞추는 것이 이 게임의 핵심이다.</p>
@@ -1946,6 +2090,8 @@ function showDead() {
 }
 
 function completeComponent() {
+  payExit();                                  // the last floor is charged too
+  if (G.salvage) { applyItem(G.salvage); G.salvage = null; }
   G.cleared.push(G.comp.id);
   say(`<b class="g">${G.comp.name} 클리어</b>`);
   showOver(`

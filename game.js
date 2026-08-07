@@ -3069,6 +3069,7 @@ const homeEl = $('home');
   DOCK.forEach(a => $('dock').appendChild(mk(a)));
   const t = new Date();
   $('stTime').textContent = t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0');
+  $('hbuild').textContent = 'BUILD ' + (window.__BUILD || 'dev');
 }
 
 let homeDone = false;

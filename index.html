@@ -596,6 +596,14 @@
   .dots .d { width: 6px; height: 6px; border-radius: 50%; background: #FFFFFF38; }
   .dots .d.on { background: #FFFFFFB4; }
 
+  #hbuild {
+    padding: 9px 0 0;
+    text-align: center;
+    font-size: 9px; letter-spacing: 0.1em;
+    color: #58626C;
+    font-variant-numeric: tabular-nums;
+  }
+
   .dock {
     display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 8px;
@@ -649,7 +657,8 @@
     top: max(2px, env(safe-area-inset-top)); left: 50%;
     transform: translateX(-50%);
     font-size: 7.5px; letter-spacing: 0.08em;
-    color: #3E4A54;
+    color: #29313A;
+    opacity: 0.6;
     pointer-events: none;
     font-variant-numeric: tabular-nums;
   }
@@ -721,6 +730,7 @@
   <div class="apps" id="apps"></div>
   <div class="dots"><span class="d on"></span><span class="d"></span><span class="d"></span></div>
   <div class="dock" id="dock"></div>
+  <div id="hbuild"></div>
 </div>
 
 <button id="skip">^C</button>

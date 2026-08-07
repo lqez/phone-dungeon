@@ -89,6 +89,8 @@ const ITEMS = [
   { id:'trim',  kind:'INSTALL', name:'TRIM MODULE',    col:0x6BD98A, desc:'강화 — 셋 중 하나를 고른다' },
   { id:'full',  kind:'EXEC',    name:'POWER BANK',     col:0xFFB454, desc:'배터리 완충' },
   { id:'nova',  kind:'EXEC',    name:'CAP DISCHARGE',  col:0xFFB454, desc:'인접 8칸 큰 피해' },
+  { id:'emp',   kind:'EXEC',    name:'EMP BURST',      col:0xFF7A5C, desc:'반경 2 모든 적 감전' },
+  { id:'spark', kind:'EXEC',    name:'ARC FLASH',      col:0xFF7A5C, desc:'가장 가까운 적 방전' },
   { id:'cool',  kind:'EXEC',    name:'VAPOR CHAMBER',  col:0xFFB454, desc:'열 전량 방출' },
 ];
 
@@ -96,14 +98,14 @@ const ITEMS = [
 // a chain of 공/방/체 decisions instead of whatever the floor happened to drop.
 const UPGRADES = [
   { id:'atk',  axis:'공', name:'CLOCK UP',    col:'r',
-    desc:'ATK <b class="r">+3</b>', note:'교환 횟수를 줄인다. 반격을 덜 맞는 가장 직접적인 길',
-    at: () => `ATK ${G.atk}`,           go: () => { G.atk += 3; } },
+    desc:'ATK <b class="r">+2</b>', note:'교환 횟수를 줄인다. 반격을 덜 맞는 가장 직접적인 길',
+    at: () => `ATK ${G.atk}`,           go: () => { G.atk += 2; } },
   { id:'def',  axis:'방', name:'SHIELD CAN',  col:'g',
     desc:'DEF <b class="g">+1</b>', note:'맞는 모든 피해에서 1씩 깎는다. 교환이 길수록 이득',
     at: () => `DEF ${G.def}`,           go: () => { G.def += 1; } },
   { id:'cap',  axis:'체', name:'CELL TRIM',   col:'c',
-    desc:'배터리 최대치 <b class="c">+4</b>', note:'버틸 수 있는 교환의 총량이 늘어난다',
-    at: () => `최대 ${maxBat()}`,        go: () => { G.batBonus += 4; G.bat += 4; } },
+    desc:'배터리 최대치 <b class="c">+3</b>', note:'버틸 수 있는 교환의 총량이 늘어난다',
+    at: () => `최대 ${maxBat()}`,        go: () => { G.batBonus += 3; G.bat += 3; } },
   { id:'fog',  axis:'체', name:'FOG TAP',     col:'c',
     desc:'안개 1칸당 배터리 <b class="c">+1</b> 추가', note:'탐색이 곧 회복이 된다. 넓은 층에서 강하다',
     at: () => `안개 +${G.lv + G.fogBonus}/칸`, go: () => { G.fogBonus += 1; } },
@@ -903,8 +905,8 @@ let phase = 'board';   // board | dungeon | dead — the home screen sits over t
 
 function newGame() {
   G = {
-    lv:1, xp:0, atk:5, def:0,
-    bat:10, health:100, heat:0, shutdown:0,
+    lv:1, xp:0, atk:1, def:0,
+    bat:5, health:100, heat:0, shutdown:0,
     depth:0, floor:0, comp:null, cleared:[],
     kills:0, tiles:0,
     batBonus:0,     // CLEAN ROOM payouts and CELL TRIM, permanent
@@ -922,7 +924,7 @@ function newGame() {
   };
 }
 
-const maxBat = () => Math.max(1, Math.floor(10 * G.lv * G.health / 100) + G.batBonus);
+const maxBat = () => Math.max(1, Math.floor(5 * G.lv * G.health / 100) + G.batBonus);
 function heatState() {
   if (G.shutdown > 0) return 'shutdown';
   if (G.heat >= 90) return 'throttle';
@@ -1000,7 +1002,7 @@ const GIM = {
 
   // 전압 변동 — ATK swings every turn
   pmic: {
-    onTurn() { G.volt = ri(-2, 3); },
+    onTurn() { G.volt = ri(-1, 2); },
     atk() { return G.volt || 0; },
   },
 
@@ -1028,9 +1030,9 @@ const GIM = {
       if (!edge.length) return;
       const p = pick(edge), t = pick(MONSTERS);
       const lv = Math.max(1, 1 + Math.floor(G.depth * 0.72) + ri(-1, 1));
-      const hp = Math.max(1, Math.round(8 * lv * t.hp));
+      const hp = Math.max(1, Math.round(2.5 * lv * t.hp));
       m.mons.push({ x:p.x, y:p.y, t, lv, hp, max:hp,
-        atk: Math.max(1, Math.round(5 * lv * t.atk)), def: Math.round(t.def * lv),
+        atk: Math.max(1, Math.round(1.2 * lv * t.atk)), def: Math.round(t.def * lv * 0.5),
         halt:0, dead:false, wasHit:false, intruder:true });
       monObj.push(makeMonster(m.mons[m.mons.length - 1]));
       syncMeshes();
@@ -1060,7 +1062,7 @@ const GIM = {
   batt: {
     heatMul: 2,
     onKill(mo) {
-      const got = Math.min(maxBat() - G.bat, mo.lv * 2);
+      const got = Math.min(maxBat() - G.bat, mo.lv);
       if (got > 0) { G.bat += got; floatText(mo.x, mo.y, '+' + got, '#4DE0D0'); }
     },
   },
@@ -1165,20 +1167,19 @@ function genMap(depth) {
     const p = open.shift();
     mons.push({ ...c, x:p.x, y:p.y, hp:c.max, halt:0, dead:false, wasHit:false, migrated:true });
   }
-  const count = Math.min(11, 6 + Math.floor(depth / 2)) - mons.length;
+  const count = Math.min(11, 4 + Math.floor(depth / 2)) - mons.length;   // 초반은 4기부터
   const base = 1 + Math.floor(depth * 0.72);
   for (let i = 0; i < count && open.length; i++) {
     const p = open.shift();
     const boss = depth % 4 === 0 && i === 0;
     const t = boss ? BOSS : pick(MONSTERS);
     const lv = Math.max(1, boss ? base + 2 : base + ri(-1, 2));
-    // 8, not 11. At 11 an equal-level ZOMBIE cost exactly one full battery — that
-    // is death, so clearing a floor was never on the table and every floor ended
-    // the same way. At 8 four of the five types are worth meleeing and DEADLOCK
-    // stays the one you answer with SURGE.
-    const hp = Math.max(1, Math.round(8 * lv * t.hp));
+    // Player scale is now ATK 1 / BAT 5. An equal-level ZOMBIE (hp ≈ 2.5L,
+    // atk ≈ 1.2L) dies in ~3 swings and bills ~2 counters — winnable from turn
+    // one, and the ratios hold as both sides grow.
+    const hp = Math.max(1, Math.round(2.5 * lv * t.hp));
     mons.push({ x:p.x, y:p.y, t, lv, hp, max:hp,
-      atk: Math.max(1, Math.round(5 * lv * t.atk)), def: Math.round(t.def * lv),
+      atk: Math.max(1, Math.round(1.2 * lv * t.atk)), def: Math.round(t.def * lv * 0.5),
       halt:0, dead:false, wasHit:false });
   }
   G.carry = [];
@@ -1908,13 +1909,38 @@ function applyItem(t) {
     case 'full': G.bat = maxBat(); floatText(G.map.px, G.map.py, 'FULL', '#FFB454'); say(`<b class="a">${t.name}</b> — 배터리 완충`); break;
     case 'cool': G.heat = 0; G.shutdown = 0; say(`<b class="a">${t.name}</b> — 열 전량 방출`); break;
     case 'nova': {
-      const dmg = 12 * G.lv; let n = 0;
+      const dmg = 4 * G.lv; let n = 0;
       for (const mo of G.map.mons) {
         if (mo.dead || dist(mo.x, mo.y, G.map.px, G.map.py) > 1) continue;
         hurt(mo, dmg); n++;
       }
       say(`<b class="a">${t.name}</b> — 인접 ${n}기에 ${dmg} 피해`);
       shake(0.4);
+      break;
+    }
+    case 'emp': {
+      const dmg = 3 * G.lv; let n = 0;
+      for (const mo of G.map.mons) {
+        if (mo.dead || dist(mo.x, mo.y, G.map.px, G.map.py) > 2) continue;
+        hurt(mo, dmg); boltAt(mo.x, mo.y); n++;
+      }
+      say(`<b class="a">${t.name}</b> — 반경 2, ${n}기에 ${dmg} 피해`);
+      shake(0.4);
+      break;
+    }
+    case 'spark': {
+      let best = null;
+      for (const mo of G.map.mons) {
+        if (mo.dead || G.map.fog[mo.y][mo.x] === 1) continue;
+        const d = dist(mo.x, mo.y, G.map.px, G.map.py);
+        if (!best || d < best.d) best = { mo, d };
+      }
+      if (best) {
+        const dmg = 5 * G.lv;
+        hurt(best.mo, dmg); boltAt(best.mo.x, best.mo.y);
+        say(`<b class="a">${t.name}</b> — ${best.mo.t.name}에게 ${dmg} 방전`);
+        shake(0.3);
+      } else say(`<b class="a">${t.name}</b> — 방전할 대상이 없다`);
       break;
     }
   }
@@ -1975,7 +2001,7 @@ function xpFor(l) {
 function checkLevel() {
   let need = XP_TABLE[G.lv - 1] ?? 9999;
   while (G.xp >= need && G.lv < 12) {
-    G.xp -= need; G.lv++; G.atk += 5;
+    G.xp -= need; G.lv++; G.atk += 2;
     G.bat = maxBat(); G.heat = 0; G.shutdown = 0;   // the signature move
     say(`<b class="c">LEVEL ${G.lv}</b> — 최적화 완료. 배터리 완충, 열 0`);
     floatText(G.map.px, G.map.py, 'LV' + G.lv, '#4DE0D0');
@@ -2436,8 +2462,7 @@ function tapTile(x, y) {
       return;
     }
     G.forcing = false;
-    say(`LV${G.lv} · ATK ${effAtk()} · 배터리 ${G.bat}/${maxBat()} — 스킬은 <b class="c">아래 슬롯</b>`);
-    coach('skill');
+    say(`LV${G.lv} · ATK ${effAtk()} · 배터리 ${G.bat}/${maxBat()}`);
     return;
   }
   G.forcing = false;
@@ -2740,7 +2765,7 @@ function syncBuffs() {
 
   if (G.buff > 0) card('r', 'TAP', '×1.5', true);
   if (G.def > 0) card('g', 'SHIELD', 'DEF ' + G.def);
-  if (G.atk > 5 * G.lv) card('r', 'CLOCK', '+' + (G.atk - 5 * G.lv));
+  if (G.atk > 2 * G.lv - 1) card('r', 'CLOCK', '+' + (G.atk - (2 * G.lv - 1)));
   if (G.batBonus > 0) card('c', 'CELL', '+' + G.batBonus);
   if (G.fogBonus > 0) card('c', 'FOG', '+' + G.fogBonus + '/칸');
   if (G.killCool > 0) card('a', 'VENT', '−' + G.killCool);
@@ -2778,7 +2803,7 @@ function showExitInspect() {
   insEl.innerHTML =
     `<span class="nm">VIA</span> <span class="dt">잔존 <b class="${q.left ? 'a' : 'g'}">${q.left}</b>기` +
     ` · HEALTH ${G.health}% → <b class="${q.loss > 4 ? 'r' : 'c'}">${after}%</b>` +
-    ` · 배터리 최대 ${Math.max(1, Math.floor(10 * G.lv * after / 100) + G.batBonus)}</span><br>` +
+    ` · 배터리 최대 ${Math.max(1, Math.floor(5 * G.lv * after / 100) + G.batBonus)}</span><br>` +
     (locked
       ? `<span class="dt"><b class="r">봉인</b> — ${killsNeeded()}기를 더 처치하면 열린다` +
         `<br>지금 뚫으면 <b class="r">+10%</b>를 더 문다</span>`
@@ -2793,14 +2818,7 @@ function showExitInspect() {
 function hideInspect() { insEl.className = ''; }
 
 const coachEl = document.getElementById('coach');
-const COACH = {
-  confirm: '칸을 <b>한 번 탭</b>하면 경로가 보이고, <b>한 번 더 탭</b>하면 실행된다',
-  move: '멀리 있는 칸도 탭하면 <b>자동으로 길을 찾아</b> 간다',
-  fog:  '어두운 블록이 <b>안개</b>다. 걷을 때마다 배터리가 회복되지만 — 안개는 <b>유한하다</b>',
-  mon:  '붉게 빛나면 나보다 강한 적이다. 적을 탭하면 <b>교환 결과</b>가 위에 뜬다',
-  skill:'화면 아래 <b>스킬 슬롯</b>을 누르면 그 자리에서 발동한다. 길게 누르면 설명',
-  via:  '구리 링이 <b>VIA</b>다. 밟기 전에 탭하면 <b>내려가는 대가</b>가 위에 뜬다 — 적을 남길수록 비싸진다',
-};
+const COACH = {};   // 친절은 접는다 — 규칙은 ?와 첫 탭 미리보기가 말해준다
 let coachTimer = null;
 function coach(id) {
   if (!G || G.coach.has(id) || !COACH[id]) return;
@@ -2977,6 +2995,7 @@ function toBoard() {
   phase = 'zoom';
   cancelBoardSel();
   hideInspect();
+  const back = G.comp ? [G.comp.x, 0.3, G.comp.z] : null;
   warpAtWorld(CAM.focus.x, DUNGEON_Y, CAM.focus.z, () => {
     phase = 'board';
     $('hud').classList.remove('on');
@@ -2988,7 +3007,7 @@ function toBoard() {
     resize();
     updateBoardHalos();
     say('소자를 선택하라');
-  });
+  }, 'out', back);
 }
 
 function updateBoardHalos() {
@@ -3042,28 +3061,36 @@ function tapComponent(g) {
 // blurs out; at the peak the scene is swapped in one frame; then it decompresses.
 // No camera travel between worlds — there is nothing to scroll past.
 let warpT1 = null, warpT2 = null;
-function warpAtWorld(x, y, z, cut) {
+const ZOOM_CLS = ['zin', 'zout', 'zinB', 'zoutB'];
+// dir 'in': the frame magnifies into the tap point until it dissolves, and the new
+// scene arrives still expanding — one continuous fall inward. dir 'out' reverses
+// both halves: the world shrinks away, and the board arrives oversized and settles.
+function warpAtWorld(x, y, z, cut, dir = 'in', backAt = null) {
   const v = new THREE.Vector3(x, y, z).project(cam);
   canvas.style.transformOrigin =
     `${(v.x * 0.5 + 0.5) * 100}% ${(1 - (v.y * 0.5 + 0.5)) * 100}%`;
-  stageEl.classList.add('warp');
-  canvas.classList.remove('warpout', 'warpin');
+  canvas.classList.remove(...ZOOM_CLS);
   void canvas.offsetWidth;
-  canvas.classList.add('warpin');
-  tweenTo({ dist: Math.max(24, CAM.dist * 0.45) }, 460);   // real parallax under the blur
+  canvas.classList.add(dir === 'in' ? 'zin' : 'zout');
+  tweenTo({ dist: dir === 'in' ? Math.max(24, CAM.dist * 0.45) : CAM.dist * 1.7 }, 440);
   clearTimeout(warpT1); clearTimeout(warpT2);
   warpT1 = setTimeout(() => {
     tween = null;                                          // the rush must not outlive the cut
     cut();
-    canvas.style.transformOrigin = '50% 50%';
-    canvas.classList.remove('warpin');
+    let origin = '50% 50%';
+    if (backAt) {
+      const b = new THREE.Vector3(backAt[0], backAt[1], backAt[2]).project(cam);
+      origin = `${(b.x * 0.5 + 0.5) * 100}% ${(1 - (b.y * 0.5 + 0.5)) * 100}%`;
+    }
+    canvas.style.transformOrigin = origin;
+    canvas.classList.remove(...ZOOM_CLS);
     void canvas.offsetWidth;
-    canvas.classList.add('warpout');
+    canvas.classList.add(dir === 'in' ? 'zinB' : 'zoutB');
     warpT2 = setTimeout(() => {
-      canvas.classList.remove('warpout');
-      stageEl.classList.remove('warp');
+      canvas.classList.remove(...ZOOM_CLS);
+      canvas.style.transformOrigin = '50% 50%';
     }, 560);
-  }, 470);
+  }, 450);
 }
 
 function selectComponent(g) {
@@ -3149,7 +3176,7 @@ function enterBoard() {
   $('log').classList.add('on');
   updateBoardHalos();
   resize();
-  say('기판이 드러났다. <b class="c">소자를 탭</b>해 내려가라 · 도움말은 <b class="c">?</b>');
+  say('기판이 드러났다 · 도움말 <b class="c">?</b>');
 }
 skipBtn.onclick = launchGame;
 

@@ -42,33 +42,18 @@
 
   #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; will-change: transform, filter; }
 
-  /* ───────── hyperdrive warp ─────────
-     Entering a part: the frame is dragged toward the tap point and smears out;
-     the world is swapped at the peak; then it snaps back into focus. */
-  #scene.warpin { animation: warpin .48s cubic-bezier(.55, 0, .9, .55) forwards; }
-  @keyframes warpin {
-    30%  { filter: blur(1px) brightness(1.04); }
-    100% { transform: scale(3.1); filter: blur(18px) brightness(1.85) saturate(1.5); }
-  }
-  #scene.warpout { animation: warpout .56s cubic-bezier(.08, .7, .16, 1) both; }
-  @keyframes warpout {
-    0%   { transform: scale(2.6); filter: blur(18px) brightness(1.6) saturate(1.4); }
-    55%  { filter: blur(3px) brightness(1.08); }
-    100% { transform: none; filter: none; }
-  }
-  /* streaks radiating from the centre while the warp is live */
-  #warpfx {
-    position: fixed; inset: -22%;
-    z-index: 24; pointer-events: none;
-    opacity: 0;
-    background:
-      radial-gradient(circle at 50% 50%, transparent 26%, #4DE0D01E 58%, #05070A 96%),
-      repeating-conic-gradient(from 0deg, #4DE0D016 0deg 1.6deg, transparent 1.6deg 8deg);
-    filter: blur(2px);
-    transition: opacity .18s;
-  }
-  #stage.warp #warpfx { opacity: 1; animation: streak .6s linear infinite; }
-  @keyframes streak { to { transform: rotate(7deg) scale(1.18); } }
+  /* ───────── zoom warp ─────────
+     A dive is one continuous motion: magnify into the tap point until the frame
+     dissolves, then the next scene arrives still expanding. Coming back out runs
+     both halves in reverse. No rays, no wipes — just the lens. */
+  #scene.zin  { animation: zin  .46s cubic-bezier(.6, 0, .95, .5) forwards; }
+  @keyframes zin  { 25% { filter: none; } 100% { transform: scale(4.2); filter: blur(24px) brightness(1.55); } }
+  #scene.zinB { animation: zinB .52s cubic-bezier(.05, .6, .14, 1) both; }
+  @keyframes zinB { 0% { transform: scale(.48); filter: blur(22px) brightness(1.35); } 62% { filter: blur(3px); } 100% { transform: none; filter: none; } }
+  #scene.zout  { animation: zout .44s cubic-bezier(.6, 0, .95, .5) forwards; }
+  @keyframes zout { 25% { filter: none; } 100% { transform: scale(.4); filter: blur(20px) brightness(1.3); } }
+  #scene.zoutB { animation: zoutB .52s cubic-bezier(.05, .6, .14, 1) both; }
+  @keyframes zoutB { 0% { transform: scale(2.7); filter: blur(20px) brightness(1.25); } 62% { filter: blur(3px); } 100% { transform: none; filter: none; } }
 
   /* ───────── phone mockup ─────────
      The stage carries a transform, so every position:fixed panel inside anchors
@@ -705,7 +690,6 @@
 <div id="phone"><div id="stage">
 
 <canvas id="scene"></canvas>
-<div id="warpfx"></div>
 
 <div id="top">
 <div id="hud">

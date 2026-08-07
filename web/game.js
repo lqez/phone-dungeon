@@ -169,9 +169,350 @@ function numSprite(n, color) {
 // ════════════════════════════════════════════════════════════════
 
 const PHONE_W = 7.2, PHONE_H = 15.2, PHONE_T = 0.75;
+const PLATE_W = PHONE_W - 0.9, PLATE_H = PHONE_H - 1.4;
 let glassMesh, boardPlate, icMeshes = [], icLabels = [];
 
+// ════════════════════════════════════════════════════════════════
+//  procedural texture
+//
+//  All of the "this is a real board" detail is painted, not modelled: solder mask
+//  and silkscreen on the hub plate, metal-layer routing on the die floor. A phone
+//  screen shows a tile at roughly 32px, so every pattern here is drawn coarse
+//  enough to survive that and keyed to the same palette as the UI.
+// ════════════════════════════════════════════════════════════════
+
+function canvasTex(w, h, draw, repeat) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); }
+  return t;
+}
+
+// self-contained rng so painting never disturbs the run seed
+const prng = s => () => {
+  s = s + 0x6D2B79F5 | 0;
+  let t = Math.imul(s ^ s >>> 15, 1 | s);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+};
+
+function speckle(g, w, h, n, colors, r0, r1, R) {
+  for (let i = 0; i < n; i++) {
+    g.fillStyle = colors[(R() * colors.length) | 0];
+    g.globalAlpha = 0.12 + R() * 0.3;
+    const s = r0 + R() * (r1 - r0);
+    g.fillRect(R() * w, R() * h, s, s);
+  }
+  g.globalAlpha = 1;
+}
+
+// ───────────── die interior: one metal layer, seen from above ─────────────
+function dieMetalTex(variant) {
+  return canvasTex(128, 128, (g, w, h) => {
+    const R = prng(variant * 7717 + 13);
+    g.fillStyle = variant ? '#0E3A34' : '#12433B';
+    g.fillRect(0, 0, w, h);
+
+    // diffusion speckle under the metal
+    speckle(g, w, h, 90, ['#0A2E29', '#175248'], 2, 5, R);
+
+    // routing tracks on a 16px pitch, a couple of them powered
+    const pitch = 16, off = variant ? 8 : 0;
+    for (let i = 0; i < 8; i++) {
+      const v = R() < 0.5;
+      const p = off + ((i * 2 + (R() * 2 | 0)) % 8) * pitch;
+      const live = R() < 0.28;
+      const len = 40 + R() * 88;
+      const s = R() * (128 - len * 0.4);
+      g.fillStyle = live ? '#2E8877' : '#1C5B50';
+      if (v) g.fillRect(p, s, 4, len); else g.fillRect(s, p, len, 4);
+      g.fillStyle = live ? '#49B9A2' : '#245F55';        // lit top edge of the trace
+      if (v) g.fillRect(p, s, 1, len); else g.fillRect(s, p, len, 1);
+    }
+
+    // vias where tracks stack to the layer below
+    for (let i = 0; i < 7; i++) {
+      const x = ((R() * 8) | 0) * pitch + off, y = ((R() * 8) | 0) * pitch;
+      g.fillStyle = '#0A211E'; g.fillRect(x - 1, y - 1, 8, 8);
+      g.fillStyle = '#8A6A2E'; g.fillRect(x, y, 6, 6);
+      g.fillStyle = '#C89B44'; g.fillRect(x + 1, y + 1, 3, 3);
+    }
+
+    // a band of standard cells — the repetition is what reads as "die"
+    g.fillStyle = '#17554B';
+    const cy = ((R() * 6) | 0) * pitch + 6;
+    for (let x = 4; x < 124; x += 7) g.fillRect(x, cy, 4, 12);
+  });
+}
+
+// ───────────── passivation lid: what an un-etched region looks like ─────────────
+function passivationTex() {
+  return canvasTex(128, 128, (g, w, h) => {
+    const R = prng(4211);
+    g.fillStyle = '#1B2732';
+    g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 120, ['#151F28', '#22303D'], 2, 6, R);
+    g.strokeStyle = '#212E3A'; g.lineWidth = 1;
+    for (let p = 0; p <= 128; p += 16) {
+      g.beginPath(); g.moveTo(p + .5, 0); g.lineTo(p + .5, h); g.stroke();
+      g.beginPath(); g.moveTo(0, p + .5); g.lineTo(w, p + .5); g.stroke();
+    }
+    // dull shapes buried under the lid — you can almost see the layout
+    g.fillStyle = '#1F2C37';
+    for (let i = 0; i < 5; i++) g.fillRect(R() * 100, R() * 100, 12 + R() * 22, 8 + R() * 14);
+  });
+}
+
+// ───────────── copper interconnect: the walls ─────────────
+function copperTex(dark) {
+  return canvasTex(64, 128, (g, w, h) => {
+    const R = prng(dark ? 991 : 313);
+    g.fillStyle = dark ? '#6E3D1C' : '#C87137';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 70; i++) {                       // brushed grain
+      g.globalAlpha = 0.06 + R() * 0.12;
+      g.fillStyle = R() < 0.5 ? '#000000' : '#FFC48A';
+      g.fillRect(0, R() * h, w, 1);
+    }
+    g.globalAlpha = 1;
+    // stacked via bands — the wall reads as several metal layers, not one block
+    for (let y = 10; y < h; y += 26) {
+      g.fillStyle = dark ? '#542E14' : '#9A5528'; g.fillRect(0, y, w, 4);
+      g.fillStyle = dark ? '#8A5228' : '#E39456'; g.fillRect(0, y + 4, w, 1);
+    }
+  });
+}
+
+// ───────────── silicon substrate under the die ─────────────
+function substrateTex() {
+  return canvasTex(256, 256, (g, w, h) => {
+    const R = prng(77);
+    g.fillStyle = '#081A18';
+    g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 200, ['#06120F', '#0C2320'], 2, 7, R);
+    g.strokeStyle = '#0E2A26'; g.lineWidth = 2;
+    for (let i = 0; i < 26; i++) {                       // deep routing, half buried
+      const v = R() < 0.5, p = R() * 256, s = R() * 200, l = 30 + R() * 120;
+      g.beginPath();
+      if (v) { g.moveTo(p, s); g.lineTo(p, s + l); } else { g.moveTo(s, p); g.lineTo(s + l, p); }
+      g.stroke();
+    }
+  });
+}
+
+// ───────────── the hub board, painted from the real component layout ─────────────
+const T2X = x => (x / PLATE_W + 0.5) * 1024;
+const T2Y = z => (z / PLATE_H + 0.5) * 2240;
+
+function pcbTex() {
+  return canvasTex(1024, 2240, (g, w, h) => {
+    const R = prng(20260807);
+
+    g.fillStyle = '#0C2A26';                             // solder mask
+    g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 900, ['#0A2320', '#10322C'], 3, 9, R);
+
+    // ground pour, cross-hatched the way a thermal relief zone is
+    g.strokeStyle = '#0E322C'; g.lineWidth = 3;
+    for (let d = -h; d < w; d += 26) {
+      g.beginPath(); g.moveTo(d, 0); g.lineTo(d + h, h); g.stroke();
+    }
+
+    // routing between the real components, Manhattan with mitred corners
+    const nodes = COMPONENTS.map(c => ({ x: T2X(c.x), y: T2Y(c.z), c }));
+    const trace = (x0, y0, x1, y1, wide, live) => {
+      g.strokeStyle = live ? '#D0873F' : '#14413A';
+      g.lineWidth = wide;
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      const midY = y0 + (y1 - y0) * (0.35 + R() * 0.3);
+      const k = Math.min(34, Math.abs(x1 - x0) * 0.5, Math.abs(midY - y0) * 0.9) * Math.sign(x1 - x0 || 1);
+      g.beginPath();
+      g.moveTo(x0, y0);
+      g.lineTo(x0, midY - Math.abs(k));
+      g.lineTo(x0 + k, midY);                            // 45° mitre
+      g.lineTo(x1 - k, midY);
+      g.lineTo(x1, midY + Math.abs(k));
+      g.lineTo(x1, y1);
+      g.stroke();
+    };
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = 0; j < 3; j++) {
+        const a = nodes[i], b = nodes[(i + 1 + ((R() * 3) | 0)) % nodes.length];
+        const sx = a.x + (R() - 0.5) * a.c.w * 120, sy = a.y + (R() - 0.5) * a.c.d * 110;
+        const ex = b.x + (R() - 0.5) * b.c.w * 120, ey = b.y + (R() - 0.5) * b.c.d * 110;
+        trace(sx, sy, ex, ey, 3 + R() * 5, R() < 0.16);
+      }
+    }
+    // bus ribbons down the long axis — a phone board is mostly one big bus
+    for (let i = 0; i < 22; i++) {
+      const x = 60 + R() * 900;
+      g.strokeStyle = '#123C35'; g.lineWidth = 2 + R() * 3;
+      g.beginPath(); g.moveTo(x, R() * 400); g.lineTo(x, 400 + R() * 1700); g.stroke();
+    }
+
+    // vias: drilled hole with an annular ring
+    for (let i = 0; i < 260; i++) {
+      const x = R() * w, y = R() * h, r = 4 + R() * 3;
+      g.fillStyle = '#C8A24A'; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+      g.fillStyle = '#05100E'; g.beginPath(); g.arc(x, y, r * 0.45, 0, 7); g.fill();
+    }
+
+    // per-component: exposed gold pad field + silkscreen outline + designator
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    COMPONENTS.forEach((c, i) => {
+      const cx = T2X(c.x), cy = T2Y(c.z);
+      const pw = c.w / PLATE_W * 1024, ph = c.d / PLATE_H * 2240;
+
+      g.fillStyle = '#0A1C1A';                            // mask opening
+      g.fillRect(cx - pw / 2 - 6, cy - ph / 2 - 6, pw + 12, ph + 12);
+      const cols = Math.max(4, Math.round(pw / 26)), rows = Math.max(4, Math.round(ph / 26));
+      for (let a = 0; a < cols; a++) for (let b = 0; b < rows; b++) {
+        g.fillStyle = (a + b) % 3 ? '#B98F3E' : '#D9A441';   // BGA ball field
+        const px = cx - pw / 2 + (a + 0.5) * (pw / cols), py = cy - ph / 2 + (b + 0.5) * (ph / rows);
+        g.beginPath(); g.arc(px, py, Math.min(7, pw / cols * 0.3), 0, 7); g.fill();
+      }
+
+      g.strokeStyle = '#9FB2AC'; g.lineWidth = 3;         // silkscreen
+      g.strokeRect(cx - pw / 2 - 14, cy - ph / 2 - 14, pw + 28, ph + 28);
+      g.fillStyle = '#9FB2AC';                            // pin-1 dot
+      g.beginPath(); g.arc(cx - pw / 2 - 26, cy - ph / 2 - 26, 6, 0, 7); g.fill();
+      g.font = '700 30px ui-monospace, Menlo, monospace';
+      g.fillText('U' + (i + 1), cx, cy - ph / 2 - 36);
+      g.font = '600 20px ui-monospace, Menlo, monospace';
+      g.fillStyle = '#7C8E89';
+      g.fillText(c.id.toUpperCase(), cx, cy + ph / 2 + 34);
+    });
+
+    // discrete passives, each with its own designator — the noise floor of a real board
+    g.font = '600 15px ui-monospace, Menlo, monospace';
+    for (let i = 0; i < 120; i++) {
+      const x = R() * (w - 60) + 30, y = R() * (h - 60) + 30;
+      const vert = R() < 0.5, L = 16 + R() * 12;
+      g.fillStyle = '#C8A24A';
+      if (vert) { g.fillRect(x - 6, y - L / 2, 12, 5); g.fillRect(x - 6, y + L / 2 - 5, 12, 5); }
+      else { g.fillRect(x - L / 2, y - 6, 5, 12); g.fillRect(x + L / 2 - 5, y - 6, 5, 12); }
+      g.fillStyle = R() < 0.5 ? '#1E2A2E' : '#3A2F1E';
+      if (vert) g.fillRect(x - 6, y - L / 2 + 4, 12, L - 8);
+      else g.fillRect(x - L / 2 + 4, y - 6, L - 8, 12);
+      if (R() < 0.4) {
+        g.fillStyle = '#7C8E89';
+        g.fillText((R() < 0.5 ? 'R' : 'C') + (1 + (R() * 99 | 0)), x + (vert ? 22 : 0), y + (vert ? 0 : 18));
+      }
+    }
+
+    // board edge: silkscreen frame, fiducials, and the maker's mark
+    g.strokeStyle = '#7C8E89'; g.lineWidth = 4;
+    g.strokeRect(14, 14, w - 28, h - 28);
+    for (const [fx, fy] of [[46, 46], [w - 46, 46], [46, h - 46], [w - 46, h - 46]]) {
+      g.fillStyle = '#C8A24A'; g.beginPath(); g.arc(fx, fy, 11, 0, 7); g.fill();
+      g.fillStyle = '#0C2A26'; g.beginPath(); g.arc(fx, fy, 5, 0, 7); g.fill();
+    }
+    g.fillStyle = '#9FB2AC';
+    g.font = '700 26px ui-monospace, Menlo, monospace';
+    g.fillText('DIE SHRINK  MAIN LOGIC  REV.2', w / 2, 66);
+    g.font = '600 18px ui-monospace, Menlo, monospace';
+    g.fillStyle = '#6E807B';
+    g.fillText('RoHS · 8-LAYER HDI · ENIG', w / 2, h - 58);
+  });
+}
+
+// ───────────── IC package: epoxy mould with laser-etched marking ─────────────
+// Drawn at the part's own aspect ratio so the marking is not stretched by the
+// box scale, and marked with the component's real name — on a board this dense,
+// the silkscreen is the only way to tell one chip from another.
+function pkgTex(seed, name, aspect) {
+  const W0 = 320, H0 = Math.round(Math.min(640, Math.max(110, W0 / aspect)));
+  return canvasTex(W0, H0, (g, w, h) => {
+    const R = prng(seed);
+    g.fillStyle = '#1C2228';
+    g.fillRect(0, 0, w, h);
+    speckle(g, w, h, 320, ['#161B20', '#252C33'], 3, 9, R);
+    g.fillStyle = '#0000004D';                            // mould gate corner
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(w * 0.14, 0); g.lineTo(0, h * 0.16); g.fill();
+    const pr = Math.min(w, h) * 0.07;
+    g.fillStyle = '#77838C';                              // pin-1 dimple
+    g.beginPath(); g.arc(pr * 2.2, pr * 2.2, pr, 0, 7); g.fill();
+    g.fillStyle = '#13181C';
+    g.beginPath(); g.arc(pr * 2.2, pr * 2.2, pr * 0.52, 0, 7); g.fill();
+
+    const s = Math.min(w, h);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#9AA6AE';
+    // shrink the marking until it fits the part, the way a real laser mark is sized
+    let fs = Math.round(s * 0.19);
+    do {
+      g.font = `700 ${fs}px ui-monospace, Menlo, monospace`;
+      fs -= 2;
+    } while (fs > 8 && g.measureText(name).width > w * 0.82);
+    g.fillText(name, w / 2, h * 0.42);
+    g.fillStyle = '#6B767E';
+    g.font = `600 ${Math.round(s * 0.11)}px ui-monospace, Menlo, monospace`;
+    g.fillText(`${String.fromCharCode(65 + (R() * 26 | 0))}${1000 + (R() * 8999 | 0)}-${R() * 9 | 0}A`, w / 2, h * 0.63);
+    g.fillText(`KR ${24 + (R() * 3 | 0)}W${10 + (R() * 40 | 0)}`, w / 2, h * 0.78);
+  });
+}
+
+// ───────────── lithium pouch: foil, crinkle, and the warning print ─────────────
+function pouchTex() {
+  return canvasTex(512, 512, (g, w, h) => {
+    const R = prng(555);
+    const grad = g.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, '#2E3238'); grad.addColorStop(0.45, '#41474E');
+    grad.addColorStop(0.55, '#2A2E33'); grad.addColorStop(1, '#383D43');
+    g.fillStyle = grad; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 150; i++) {                       // foil crinkle
+      g.globalAlpha = 0.05 + R() * 0.12;
+      g.strokeStyle = R() < 0.5 ? '#000' : '#C7D2DA';
+      g.lineWidth = 1 + R() * 2;
+      g.beginPath();
+      const x = R() * w, y = R() * h;
+      g.moveTo(x, y); g.lineTo(x + (R() - 0.5) * 180, y + (R() - 0.5) * 180);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = '#1A1D21';                              // heat-sealed border
+    g.fillRect(0, 0, w, 34); g.fillRect(0, h - 34, w, 34);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#C7D2DA';
+    g.font = '700 40px ui-monospace, Menlo, monospace';
+    g.fillText('Li-Po  4.45V', w / 2, h * 0.4);
+    g.font = '600 25px ui-monospace, Menlo, monospace';
+    g.fillStyle = '#8C979F';
+    g.fillText('4820mAh · 18.6Wh', w / 2, h * 0.52);
+    g.fillStyle = '#B8863A';
+    g.font = '700 22px ui-monospace, Menlo, monospace';
+    g.fillText('⚠ DO NOT PUNCTURE', w / 2, h * 0.66);
+  });
+}
+
+let painted = false;
+function paintMaterials() {
+  if (painted) return;
+  painted = true;
+  // a map replaces the base colour — leave it white or the texture gets tinted flat
+  const skin = (m, map, o = {}) => {
+    m.map = map; m.color.setHex(0xFFFFFF);
+    Object.assign(m, o);
+    m.needsUpdate = true;
+  };
+  skin(M.pcb, pcbTex(), { roughness: 0.62, metalness: 0.1 });
+  skin(M.pcbDark, substrateTex(), { roughness: 0.9 });
+  skin(M.copper, copperTex(false), { roughness: 0.36, metalness: 0.85 });
+  skin(M.copperD, copperTex(true), { roughness: 0.5, metalness: 0.7 });
+  skin(M.chipBody, pkgTex(31, 'DIE', 1), { roughness: 0.62, metalness: 0.28 });
+  M.pouch = mat({ color:0xFFFFFF, map: pouchTex(), roughness: 0.42, metalness: 0.55 });
+  skin(M.fog, passivationTex(), { roughness: 0.96 });
+  const a = dieMetalTex(0), b = dieMetalTex(1);
+  skin(M.floor, a, { emissiveMap: a, emissive: new THREE.Color(0x2E8877), emissiveIntensity: 0.5, roughness: 0.62, metalness: 0.3 });
+  skin(M.floorAlt, b, { emissiveMap: b, emissive: new THREE.Color(0x2E8877), emissiveIntensity: 0.42, roughness: 0.62, metalness: 0.3 });
+}
+
 function buildBoard() {
+  paintMaterials();
   // chassis
   const body = new THREE.Mesh(BOX, M.frame);
   body.scale.set(PHONE_W, PHONE_T, PHONE_H);
@@ -186,14 +527,32 @@ function buildBoard() {
   boardPlate.receiveShadow = true;
   boardGroup.add(boardPlate);
 
-  // copper traces criss-crossing the plate
-  for (let i = 0; i < 46; i++) {
-    const horiz = rnd() < 0.5;
-    const t = new THREE.Mesh(BOX, i % 3 ? M.copperD : M.copper);
-    const len = 0.8 + rnd() * 3.4;
-    t.scale.set(horiz ? len : 0.055, 0.03, horiz ? 0.055 : len);
-    t.position.set((rnd() - 0.5) * (PHONE_W - 1.4), -0.02, (rnd() - 0.5) * (PHONE_H - 2));
-    boardGroup.add(t);
+  // Traces live in the solder-mask texture now, so the plate only carries the
+  // things that have real height: shield cans over the noisy parts, and the
+  // board-to-board connector the display flex plugs into.
+  // the gap the components leave between the radios and the cell
+  const can = new THREE.Mesh(BOX, M.frame);
+  can.scale.set(2.0, 0.2, 0.78);
+  can.position.set(0, 0.1, 1.62);
+  can.castShadow = true; can.receiveShadow = true;
+  boardGroup.add(can);
+  for (let i = 0; i < 4; i++) {                        // stamped vent slots in the lid
+    const slot = new THREE.Mesh(BOX, M.pcbDark);
+    slot.scale.set(1.3, 0.02, 0.05);
+    slot.position.set(0, 0.21, 1.62 + (i - 1.5) * 0.16);
+    boardGroup.add(slot);
+  }
+  // board-to-board connector at the top edge — where the display flex plugs in
+  const conn = new THREE.Mesh(BOX, M.frame);
+  conn.scale.set(2.2, 0.13, 0.36);
+  conn.position.set(0, 0.065, -6.64);
+  conn.castShadow = true;
+  boardGroup.add(conn);
+  for (let i = 0; i < 20; i++) {
+    const pin = new THREE.Mesh(BOX, M.gold);
+    pin.scale.set(0.04, 0.04, 0.44);
+    pin.position.set((i - 9.5) * 0.1, 0.055, -6.64);
+    boardGroup.add(pin);
   }
 
   // components
@@ -202,7 +561,12 @@ function buildBoard() {
     g.position.set(c.x, 0, c.z);
 
     const isBig = c.id === 'batt';
-    const pkg = new THREE.Mesh(BOX, isBig ? M.pcbDark : M.chipBody);
+    // its own marking per part — the board is too dense to tell chips apart otherwise
+    const pkgMat = isBig ? M.pouch : mat({
+      color: 0xFFFFFF, map: pkgTex(i * 977 + 5, c.name, c.w / c.d),
+      roughness: 0.62, metalness: 0.28,
+    });
+    const pkg = new THREE.Mesh(BOX, pkgMat);
     const hgt = isBig ? 0.34 : 0.30 + rnd() * 0.14;
     pkg.scale.set(c.w, hgt, c.d);
     pkg.position.y = hgt / 2;
@@ -226,9 +590,9 @@ function buildBoard() {
       g.add(strip);
     }
 
-    // selection halo, hidden until the hub is live
-    const halo = new THREE.Mesh(BOX, emissive(0x4DE0D0, 1.4));
-    halo.scale.set(c.w + 0.34, 0.035, c.d + 0.34);
+    // selection halo, hidden until the hub is live — kept thin so the board reads through
+    const halo = new THREE.Mesh(BOX, emissive(0x4DE0D0, 1.1));
+    halo.scale.set(c.w + 0.17, 0.03, c.d + 0.17);
     halo.position.y = 0.012;
     halo.visible = false;
     g.add(halo);
@@ -429,6 +793,56 @@ function clearDungeon() {
   fogAnims = []; floaters = [];
 }
 
+// The playfield is a die, so it gets what a die has at its border: a seal ring
+// keeping the moisture out, a row of bond pads, and corner alignment marks.
+function buildDieEdge() {
+  const HW = W / 2 + 0.6, HH = H / 2 + 0.6;
+
+  for (const [i, r] of [[0, 0.10], [1, 0.24]].entries()) {
+    const ring = new THREE.Group();
+    for (const [sx, sz, lx, lz] of [
+      [0, -HH + r, HW * 2, r * 2], [0, HH - r, HW * 2, r * 2],
+      [-HW + r, 0, r * 2, HH * 2], [HW - r, 0, r * 2, HH * 2],
+    ]) {
+      const b = new THREE.Mesh(BOX, i ? M.copperD : M.copper);
+      b.scale.set(lx, 0.16 + i * 0.06, lz);
+      b.position.set(sx, 0.02 + i * 0.03, sz);
+      ring.add(b);
+    }
+    dunGroup.add(ring);
+  }
+
+  // bond pads just inside the seal ring, wire-bonded out of the die
+  for (let i = 0; i < 22; i++) {
+    const t = (i + 0.5) / 22;
+    for (const s of [-1, 1]) {
+      const pad = new THREE.Mesh(BOX, M.gold);
+      pad.scale.set(0.14, 0.05, 0.3);
+      pad.position.set(s * (HW - 0.44), 0.05, (t - 0.5) * H * 0.98);
+      dunGroup.add(pad);
+    }
+  }
+  for (let i = 0; i < 13; i++) {
+    const t = (i + 0.5) / 13;
+    for (const s of [-1, 1]) {
+      const pad = new THREE.Mesh(BOX, M.gold);
+      pad.scale.set(0.3, 0.05, 0.14);
+      pad.position.set((t - 0.5) * W * 0.98, 0.05, s * (HH - 0.44));
+      dunGroup.add(pad);
+    }
+  }
+
+  // corner alignment crosses — the marks a stepper lines the reticle up with
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    for (const [w2, d2] of [[0.4, 0.07], [0.07, 0.4]]) {
+      const c = new THREE.Mesh(BOX, emissive(0x2E6E78, 0.5));
+      c.scale.set(w2, 0.04, d2);
+      c.position.set(sx * (HW - 0.95), 0.04, sz * (HH - 0.95));
+      dunGroup.add(c);
+    }
+  }
+}
+
 function buildDungeon() {
   clearDungeon();
   const m = G.map;
@@ -439,6 +853,8 @@ function buildDungeon() {
   slab.position.y = -0.55;
   slab.receiveShadow = true;
   dunGroup.add(slab);
+
+  buildDieEdge();
 
   for (let y = 0; y < H; y++) {
     tileMesh[y] = []; fogMesh[y] = []; wallMesh[y] = []; pickMesh[y] = [];
@@ -1214,7 +1630,12 @@ function tapTile(x, y) {
     return;
   }
 
-  if (x === m.px && y === m.py) { clearPending(); openRadial(); return; }
+  if (x === m.px && y === m.py) {
+    clearPending();
+    say(`LV${G.lv} · ATK ${effAtk()} · 배터리 ${G.bat}/${maxBat()} — 스킬은 <b class="c">아래 슬롯</b>`);
+    coach('skill');
+    return;
+  }
 
   // second tap on the same target = confirm
   if (G.pending && G.pending.x === x && G.pending.y === y) { commitPending(); return; }
@@ -1310,87 +1731,96 @@ addEventListener('keydown', e => {
   const k = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0],
               w:[0,-1], s:[0,1], a:[-1,0], d:[1,0] }[e.key];
   if (k) { e.preventDefault(); tapTile(G.map.px + k[0], G.map.py + k[1]); }
-  if (e.key === ' ') { e.preventDefault(); openRadial(); }
+  // 1..4 fire the dock slots directly, same as tapping them
+  const n = '1234'.indexOf(e.key);
+  if (n >= 0 && SKILLS[n]) { e.preventDefault(); fireSkill(SKILLS[n]); }
 });
 
 // ════════════════════════════════════════════════════════════════
-//  radial menu (DOM, projected onto the player)
+//  skill dock — one slot per skill, always on screen, fires on tap
 // ════════════════════════════════════════════════════════════════
 
-const radEl = document.getElementById('radial');
-const radDesc = document.getElementById('radialDesc');
-let radSel = null;
+// Every other action in this game asks for a confirming second tap. Skills do not:
+// the slot itself is the confirmation, because it carries the cost and the cooldown
+// on its face. Press-and-hold reads the long description instead of firing.
+const dockEl = document.getElementById('skills');
+const slotEls = new Map();
 
-function openRadial() {
-  coachEl.classList.remove('on');
-  hideInspect();
-  radEl.querySelectorAll('.slot,.hubc').forEach(e => e.remove());
-  const v = playerObj.position.clone();
-  v.y += DUNGEON_Y + 0.4;
-  v.project(cam);
-  let sx = (v.x * 0.5 + 0.5) * innerWidth;
-  let sy = (-v.y * 0.5 + 0.5) * innerHeight;
-  const R = Math.min(122, Math.min(innerWidth, innerHeight) * 0.29);
-  sx = Math.max(R + 46, Math.min(innerWidth - R - 46, sx));
-  sy = Math.max(R + 96, Math.min(innerHeight - R - 56, sy));
-
-  const hub = document.createElement('div');
-  hub.className = 'hubc';
-  hub.style.left = sx + 'px'; hub.style.top = sy + 'px';
-  hub.textContent = '취소';
-  hub.onclick = closeRadial;
-  radEl.appendChild(hub);
-
-  radSel = null;
-  SKILLS.forEach((s, i) => {
-    const a = -Math.PI / 2 + i * (Math.PI * 2 / SKILLS.length);
+function buildDock() {
+  dockEl.innerHTML = '';
+  slotEls.clear();
+  for (const s of SKILLS) {
     const el = document.createElement('div');
-    const bad = skillBlock(s);
-    el.className = 'slot' + (bad ? ' off' : '');
-    el.style.left = (sx + Math.cos(a) * R) + 'px';
-    el.style.top = (sy + Math.sin(a) * R) + 'px';
-    el.style.transitionDelay = (i * 26) + 'ms';
-    // name / one-line effect / cost — readable without hovering, for touch
-    el.innerHTML = `<span class="nm">${s.name}</span><span class="ef">${s.desc}</span>` +
-                   `<span class="cost">${bad || '열 +' + heatCost(s.heat)}</span>`;
-    el.onpointerenter = () => { if (!radSel) showSkillDetail(s); el.classList.add('hot'); };
-    el.onpointerleave = () => { if (radSel !== s.id) el.classList.remove('hot'); };
-    el.onclick = e => { e.stopPropagation(); pickSkill(s, el); };
-    radEl.appendChild(el);
-  });
-
-  radDesc.innerHTML = '<span class="hint">스킬을 탭하면 설명이 나온다</span>';
-  radEl.classList.add('on');
+    el.className = 'sk';
+    el.innerHTML = `<span class="nm">${s.name}</span>` +
+                   `<span class="ef">${s.desc}</span>` +
+                   `<span class="cost"></span>`;
+    let held = false, timer = null;
+    el.addEventListener('pointerdown', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      held = false;
+      timer = setTimeout(() => { held = true; showSkillDetail(s); }, 420);
+    });
+    el.addEventListener('pointerup', ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      clearTimeout(timer);
+      if (!held) fireSkill(s);
+    });
+    el.addEventListener('pointerleave', () => clearTimeout(timer));
+    el.addEventListener('contextmenu', ev => ev.preventDefault());
+    dockEl.appendChild(el);
+    slotEls.set(s.id, el);
+  }
 }
 
-function closeRadial() { radEl.classList.remove('on'); radSel = null; }
-radEl.onclick = closeRadial;
+function syncDock() {
+  const live = phase === 'dungeon' && G && !G.dead;
+  dockEl.classList.toggle('on', !!live);
+  logEl.classList.toggle('docked', !!live);
+  if (!live) return;
+  for (const s of SKILLS) {
+    const el = slotEls.get(s.id);
+    const bad = skillBlock(s);
+    const cd = G.cd[s.id] || 0;
+    const armed = G.targeting && G.targeting.skill === s.id;
+    el.className = 'sk' + (armed ? ' armed' : bad ? ' off' : ' ready');
+    el.querySelector('.cost').textContent =
+      armed ? '방향 선택' : bad && !cd ? bad : '열 +' + heatCost(s.heat);
+    let veil = el.querySelector('.cd');
+    if (cd > 0) {
+      if (!veil) { veil = document.createElement('span'); veil.className = 'cd'; el.appendChild(veil); }
+      veil.textContent = cd;
+      veil.style.setProperty('--f', Math.round(100 * cd / (s.cd + 1)) + '%');
+    } else if (veil) veil.remove();
+  }
+}
 
 function showSkillDetail(s) {
   const bad = skillBlock(s);
-  radDesc.innerHTML =
-    `<span class="ttl">${s.name}</span> <span class="cst">열 +${heatCost(s.heat)}` +
-    (heatState() === 'warm' ? ' <b>(과열 1.5배)</b>' : '') + `</span><br>` +
-    `<span class="body">${s.long}</span>` +
-    (bad ? `<br><span class="no">사용 불가 — ${bad}</span>`
-         : `<br><span class="go">한 번 더 탭하면 ${s.target === 'dir' ? '방향 선택' : '발동'}</span>`);
+  insEl.className = 'on';
+  insEl.innerHTML =
+    `<span class="nm">${s.name}</span> <span class="dt">열 +${heatCost(s.heat)}` +
+    (heatState() === 'warm' ? ' <b class="r">(과열 1.5배)</b>' : '') +
+    (s.cd ? ` · 쿨 ${s.cd}턴` : '') + `</span><br>` +
+    `<span class="dt">${s.long}</span>` +
+    (bad ? `<br><b class="r">사용 불가 — ${bad}</b>` : '');
+  clearTimeout(detailTimer);
+  detailTimer = setTimeout(hideInspect, 4200);
 }
+let detailTimer = null;
 
-// first tap explains, second tap commits — same contract as moving and attacking
-function pickSkill(s, el) {
-  if (radSel !== s.id) {
-    radSel = s.id;
-    radEl.querySelectorAll('.slot').forEach(e => e.classList.remove('hot'));
-    el.classList.add('hot');
-    showSkillDetail(s);
-    return;
+function fireSkill(s) {
+  if (phase !== 'dungeon' || !G || G.dead || G.walking) return;
+  // tapping the armed slot again backs out of targeting
+  if (G.targeting && G.targeting.skill === s.id) {
+    G.targeting = null; clearGhost(); say('대상 취소'); sync(); return;
   }
   const bad = skillBlock(s);
-  closeRadial();
   if (bad) { say(`${s.name} 사용 불가 — ${bad}`); return; }
+  clearPending();
   if (s.target === 'dir') {
     G.targeting = { skill: s.id, dir: null };
-    say('<b class="c">SURGE</b> — 방향을 탭해 조준하라');
+    say(`<b class="c">${s.name}</b> — 방향을 탭해 조준하라`);
     sync(); return;
   }
   useSkill(s);
@@ -1428,7 +1858,7 @@ const COACH = {
   move: '멀리 있는 칸도 탭하면 <b>자동으로 길을 찾아</b> 간다',
   fog:  '어두운 블록이 <b>안개</b>다. 걷을 때마다 배터리가 회복되지만 — 안개는 <b>유한하다</b>',
   mon:  '붉게 빛나면 나보다 강한 적이다. 적을 탭하면 <b>교환 결과</b>가 위에 뜬다',
-  skill:'자신(시안 큐브)을 <b>탭</b>하면 스킬 휠이 열린다',
+  skill:'화면 아래 <b>스킬 슬롯</b>을 누르면 그 자리에서 발동한다. 길게 누르면 설명',
   via:  '구리 링이 <b>VIA</b>다. 밟으면 아래층 — 배터리 최대치는 영구히 줄어든다',
 };
 let coachTimer = null;
@@ -1464,6 +1894,7 @@ function sync() {
   $('lv').textContent = G.lv;
   $('atk').textContent = effAtk();
   $('xp').textContent = `${G.xp}/${XP_TABLE[G.lv - 1] ?? '—'}`;
+  syncDock();
 
   if (viaObj && viaObj.visible) coach('via');
 }
@@ -1484,7 +1915,7 @@ function showHelp() {
       <div class="lg"><span class="sw" style="--c:#0B1017"></span><span><b>안개 블록</b> — 걷으면 배터리 +레벨, 열 −2. 이 던전의 유일한 회복원이고 <b>유한하다</b></span></div>
       <div class="lg"><span class="sw tall" style="--c:#C87137"></span><span><b>구리 벽</b> — 높이 솟은 것. 지나갈 수 없다</span></div>
       <div class="lg"><span class="sw" style="--c:#FF4D5E"></span><span><b>몬스터</b> — 붉으면 나보다 높은 레벨. 숫자가 레벨이다. 움직이지 않는다</span></div>
-      <div class="lg"><span class="sw" style="--c:#4DE0D0"></span><span><b>나</b> — 시안 큐브. 탭하면 스킬 휠</span></div>
+      <div class="lg"><span class="sw" style="--c:#4DE0D0"></span><span><b>나</b> — 시안 큐브. 스킬은 화면 <b>아래 슬롯</b>에서 바로 쓴다</span></div>
       <div class="lg"><span class="sw ring" style="--c:#C87137"></span><span><b>VIA</b> — 아래층으로 내려가는 구멍</span></div>
       <div class="lg"><span class="sw" style="--c:#6BD98A"></span><span><b>부품</b> — 밟는 즉시 발동한다. 인벤토리는 없다</span></div>
     </div>
@@ -1496,6 +1927,7 @@ function showHelp() {
 
 function showDead() {
   phase = 'dead';
+  syncDock();
   showOver(`
     <h1 class="dead">SYSTEM HALTED</h1>
     <div class="sub">crash.log</div>
@@ -1544,6 +1976,7 @@ function toBoard() {
   phase = 'board';
   $('hud').classList.remove('on');
   $('log').classList.remove('on');
+  syncDock();
   boardGroup.visible = true;
   hideInspect();
   resize();
@@ -1559,7 +1992,9 @@ function updateBoardHalos() {
     const c = g.userData.comp;
     const done = G.cleared.includes(c.id);
     g.userData.halo.visible = !done && phase === 'board';
-    g.userData.pkg.material = done ? M.pcbDark : M.chipBody;
+    // a taken part goes dark but keeps its own marking — swapping the material
+    // out would erase the one thing that tells the chips apart
+    g.userData.pkg.material.color.setHex(done ? 0x33383E : 0xFFFFFF);
   });
 }
 
@@ -1577,6 +2012,7 @@ function selectComponent(g) {
     $('hud').classList.add('on');
     $('log').classList.add('on');
     resize();
+    sync();                       // the dock only appears once the phase is live
     say(`<b class="c">${c.name}</b> 진입 — ${c.gimmick}`);
     coach('move');
   });
@@ -1702,6 +2138,9 @@ function frame(now) {
     playerObj.position.y = 0.55 + Math.sin(t * 2.4) * 0.06;
     playerObj.rotation.y = t * 0.7;
     playerObj.userData.shell.rotation.y = -t * 1.1;
+    // hold the pick column square to the grid: spinning it would sweep a wider
+    // diagonal and let the token steal taps aimed at the tile behind it
+    playerObj.userData.pick.rotation.y = -playerObj.rotation.y;
     playerLight.position.set(playerObj.position.x, DUNGEON_Y + 2.4, playerObj.position.z);
     const st = heatState();
     const hc = st === 'throttle' || st === 'shutdown' ? 0xFF4D5E : st === 'warm' ? 0xFFB454 : 0x4DE0D0;
@@ -1768,6 +2207,7 @@ function frame(now) {
 // ════════════════════════════════════════════════════════════════
 
 buildBoard();
+buildDock();
 newGame();
 dunGroup.visible = false;
 CAM.tilt = 20; CAM.dist = 118;
